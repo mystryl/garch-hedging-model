@@ -10,7 +10,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
-def fit_basic_garch(data, p=1, q=1, output_dir='outputs/model_results'):
+def fit_basic_garch(data, p=1, q=1, output_dir='outputs/model_results', corr_window=120):
     """
     拟合基础GARCH(1,1)模型并计算套保比例
 
@@ -24,6 +24,8 @@ def fit_basic_garch(data, p=1, q=1, output_dir='outputs/model_results'):
         GARCH模型的q阶数
     output_dir : str
         输出目录
+    corr_window : int
+        动态相关系数滚动窗口大小（默认120天，约4个月交易日）
 
     Returns:
     --------
@@ -44,6 +46,7 @@ def fit_basic_garch(data, p=1, q=1, output_dir='outputs/model_results'):
 
     T = len(r_s)
     print(f"\n样本量: {T}")
+    print(f"相关系数窗口: {corr_window}天")
 
     # 分别对现货和期货收益率拟合GARCH(1,1)模型
     print("\n[1/3] 拟合单变量GARCH(1,1)模型...")
@@ -93,14 +96,13 @@ def fit_basic_garch(data, p=1, q=1, output_dir='outputs/model_results'):
     print(f"  恒定相关系数: {corr_const:.6f}")
 
     # 方法2: 使用滚动窗口估计动态相关系数
-    window = 60  # 60天滚动窗口
     rolling_corr = pd.Series(index=range(T), dtype=float)
 
-    for t in range(window, T):
-        rolling_corr.iloc[t] = np.corrcoef(resid_s[t-window+1:t+1], resid_f[t-window+1:t+1])[0, 1]
+    for t in range(corr_window, T):
+        rolling_corr.iloc[t] = np.corrcoef(resid_s[t-corr_window+1:t+1], resid_f[t-corr_window+1:t+1])[0, 1]
 
-    # 前window个数据点使用整体相关系数填充
-    rolling_corr.iloc[:window] = corr_const
+    # 前corr_window个数据点使用整体相关系数填充
+    rolling_corr.iloc[:corr_window] = corr_const
 
     # 计算条件协方差
     cov_sf = rolling_corr.values * sigma_s * sigma_f
@@ -157,6 +159,7 @@ def fit_basic_garch(data, p=1, q=1, output_dir='outputs/model_results'):
         'var_f': var_f,
         'params_spot': result_s.params.to_dict(),
         'params_futures': result_f.params.to_dict(),
+        'corr_window': corr_window,
         'output_df': output_df
     }
 

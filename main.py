@@ -83,15 +83,23 @@ def main():
         h_dcc = fit_dcc_garch(data, output_dir='outputs/model_results')
 
         print("\n正在拟合模型4: ECM-DCC-GARCH...")
-        h_ecm_dcc = fit_ecm_dcc_garch(data, output_dir='outputs/model_results')
+        try:
+            h_ecm_dcc = fit_ecm_dcc_garch(data, output_dir='outputs/model_results')
+        except Exception as e:
+            print(f"  ⚠ ECM-DCC-GARCH模型拟合失败: {e}")
+            print("  ℹ 跳过该模型，继续生成报告...")
+            h_ecm_dcc = None
 
         # 整理模型结果
         model_results = {
             'Basic GARCH': h_basic,
             'ECM-GARCH': h_ecm,
             'DCC-GARCH': h_dcc,
-            'ECM-DCC-GARCH': h_ecm_dcc
         }
+
+        # 只添加成功拟合的模型
+        if h_ecm_dcc is not None:
+            model_results['ECM-DCC-GARCH'] = h_ecm_dcc
 
         # ========================================
         # 步骤4: 评估套保效果
