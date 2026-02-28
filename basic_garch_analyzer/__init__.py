@@ -29,7 +29,7 @@ from basic_garch_analyzer.rolling_backtest import (
     generate_rolling_backtest_report
 )
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 __all__ = [
     'ModelConfig',
     'create_config',
