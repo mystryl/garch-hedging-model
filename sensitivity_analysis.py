@@ -1,18 +1,20 @@
 """
 参数敏感性分析：对比不同窗口大小的套保效果
 
-测试不同协整窗口大小对ECM-GARCH模型的影响
+测试不同相关系数窗口大小对Basic GARCH模型的影响
+测试不同协整窗口大小对ECM-DCC-GARCH模型的影响
 """
 
 import pandas as pd
 import numpy as np
 import time
 from datetime import datetime
-from data_preprocessing import preprocess_data
-from model_ecm_garch import fit_ecm_garch
-from model_ecm_dcc_garch import fit_ecm_dcc_garch
-from model_basic_garch import fit_basic_garch
 import os
+
+# 导入新模块
+from basic_garch_analyzer import load_and_preprocess, fit_basic_garch
+from model_dcc_garch import fit_dcc_garch
+from model_ecm_dcc_garch import fit_ecm_dcc_garch
 
 def calculate_effectiveness_metrics(data, h_actual):
     """
@@ -81,13 +83,29 @@ def run_sensitivity_analysis(data, windows=[60, 90, 120], output_dir='outputs/se
     data : pd.DataFrame
         预处理后的数据
     windows : list
+        要测试的窗口大小列表（Basic GARCH: corr_window, ECM-DCC-GARCH: coint_window）
+    output_dir : str
+        输出目录
+    """
+
+    print("\n" + "=" * 80)
+    print("参数敏感性分析：窗口大小对比")
+    print("=" * 80)
+    """
+    运行窗口大小敏感性分析
+
+    Parameters:
+    -----------
+    data : pd.DataFrame
+        预处理后的数据
+    windows : list
         要测试的窗口大小列表
     output_dir : str
         输出目录
     """
 
     print("\n" + "=" * 80)
-    print("参数敏感性分析：协整窗口大小对比")
+    print("参数敏感性分析：相关系数/协整窗口大小对比")
     print("=" * 80)
 
     os.makedirs(output_dir, exist_ok=True)
@@ -101,30 +119,35 @@ def run_sensitivity_analysis(data, windows=[60, 90, 120], output_dir='outputs/se
 
         start_time = time.time()
 
-        # 测试ECM-GARCH模型
-        print(f"\n[1/2] 拟合ECM-GARCH模型 (窗口={window}天)...")
+        # 测试Basic GARCH模型（使用相关系数窗口）
+        print(f"\n[1/2] 拟合Basic GARCH模型 (corr_window={window}天)...")
         try:
-            results_ecm = fit_ecm_garch(data, coint_window=window, output_dir=f'{output_dir}/window_{window}')
+            results_basic = fit_basic_garch(
+                data,
+                p=1, q=1,
+                corr_window=window,
+                tax_rate=0.13
+            )
 
             # 计算效果指标
-            metrics = calculate_effectiveness_metrics(data, results_ecm['h_actual'])
+            metrics = calculate_effectiveness_metrics(data, results_basic['h_final'])
 
             results.append({
-                'model': 'ECM-GARCH',
+                'model': 'Basic GARCH',
                 'window': window,
                 'variance_reduction': metrics['variance_reduction'],
                 'sharpe_ratio': metrics['sharpe_ratio'],
                 'max_drawdown': metrics['max_drawdown'],
                 'var_hedged': metrics['var_hedged'],
-                'h_mean': results_ecm['h_actual'].mean(),
-                'h_std': results_ecm['h_actual'].std(),
-                'h_min': results_ecm['h_actual'].min(),
-                'h_max': results_ecm['h_actual'].max(),
-                'beta0_mean': results_ecm['cointegration_params']['beta0_mean'],
-                'beta0_std': results_ecm['cointegration_params']['beta0_std'],
-                'beta1_mean': results_ecm['cointegration_params']['beta1_mean'],
-                'beta1_std': results_ecm['cointegration_params']['beta1_std'],
-                'coint_r2_mean': results_ecm['cointegration_params']['r_squared_mean']
+                'h_mean': results_basic['h_final'].mean(),
+                'h_std': results_basic['h_final'].std(),
+                'h_min': results_basic['h_final'].min(),
+                'h_max': results_basic['h_final'].max(),
+                'beta0_mean': np.nan,  # Basic GARCH没有协整参数
+                'beta0_std': np.nan,
+                'beta1_mean': np.nan,
+                'beta1_std': np.nan,
+                'coint_r2_mean': np.nan
             })
 
             print(f"  ✓ 方差降低: {metrics['variance_reduction']:.2%}")
@@ -132,14 +155,19 @@ def run_sensitivity_analysis(data, windows=[60, 90, 120], output_dir='outputs/se
             print(f"  ✓ 最大回撤: {metrics['max_drawdown']:.2%}")
 
         except Exception as e:
-            print(f"  ✗ ECM-GARCH拟合失败: {e}")
+            print(f"  ✗ Basic GARCH拟合失败: {e}")
             import traceback
             traceback.print_exc()
 
-        # 测试ECM-DCC-GARCH模型
-        print(f"\n[2/2] 拟合ECM-DCC-GARCH模型 (窗口={window}天)...")
+        # 测试ECM-DCC-GARCH模型（使用协整窗口）
+        print(f"\n[2/2] 拟合ECM-DCC-GARCH模型 (coint_window={window}天)...")
         try:
-            results_ecm_dcc = fit_ecm_dcc_garch(data, coint_window=window, output_dir=f'{output_dir}/window_{window}')
+            results_ecm_dcc = fit_ecm_dcc_garch(
+                data,
+                p=1, q=1,
+                coint_window=window,
+                output_dir=f'{output_dir}/window_{window}'
+            )
 
             # 计算效果指标
             metrics = calculate_effectiveness_metrics(data, results_ecm_dcc['h_actual'])
@@ -192,7 +220,7 @@ def run_sensitivity_analysis(data, windows=[60, 90, 120], output_dir='outputs/se
     print("敏感性分析结果汇总")
     print("=" * 80)
 
-    for model_name in ['ECM-GARCH', 'ECM-DCC-GARCH']:
+    for model_name in ['Basic GARCH', 'ECM-DCC-GARCH']:
         print(f"\n【{model_name}】")
         print("-" * 80)
 
@@ -213,10 +241,10 @@ def run_sensitivity_analysis(data, windows=[60, 90, 120], output_dir='outputs/se
 
     # 生成详细对比报告
     print("\n" + "=" * 80)
-    print("协整参数时变性对比")
+    print("协整参数时变性对比（仅ECM-DCC-GARCH）")
     print("=" * 80)
 
-    for model_name in ['ECM-GARCH', 'ECM-DCC-GARCH']:
+    for model_name in ['ECM-DCC-GARCH']:
         print(f"\n【{model_name}】")
         print("-" * 80)
 
@@ -227,16 +255,17 @@ def run_sensitivity_analysis(data, windows=[60, 90, 120], output_dir='outputs/se
             print("-" * 80)
 
             for _, row in model_data.iterrows():
-                print(f"{row['window']:<8} {row['beta0_mean']:>10.2f}   "
-                      f"{row['beta0_std']:>10.2f}   {row['beta1_mean']:>10.4f}   "
-                      f"{row['beta1_std']:>10.4f}   {row['coint_r2_mean']:>8.4f}")
+                if not pd.isna(row['beta0_mean']):  # 只显示有效数据
+                    print(f"{row['window']:<8} {row['beta0_mean']:>10.2f}   "
+                          f"{row['beta0_std']:>10.2f}   {row['beta1_mean']:>10.4f}   "
+                          f"{row['beta1_std']:>10.4f}   {row['coint_r2_mean']:>8.4f}")
 
     # 推荐建议
     print("\n" + "=" * 80)
     print("推荐建议")
     print("=" * 80)
 
-    for model_name in ['ECM-GARCH', 'ECM-DCC-GARCH']:
+    for model_name in ['Basic GARCH', 'ECM-DCC-GARCH']:
         model_data = df_results[df_results['model'] == model_name]
 
         if len(model_data) > 0:
@@ -244,15 +273,23 @@ def run_sensitivity_analysis(data, windows=[60, 90, 120], output_dir='outputs/se
             best_row = df_results.loc[best_idx]
 
             print(f"\n{model_name}:")
-            print(f"  推荐窗口大小: {best_row['window']}天")
+            print(f"  推荐窗口大小: {int(best_row['window'])}天")
             print(f"  预期方差降低: {best_row['variance_reduction']:.2%}")
             print(f"  预期夏普比率: {best_row['sharpe_ratio']:.4f}")
 
-            # 分析β参数稳定性
-            if best_row['beta0_std'] < 500 and best_row['beta1_std'] < 0.3:
-                print(f"  ✓ 协整参数稳定性良好")
+            # 分析β参数稳定性（仅ECM-DCC-GARCH）
+            if model_name == 'ECM-DCC-GARCH':
+                if not pd.isna(best_row['beta0_std']):
+                    if best_row['beta0_std'] < 500 and best_row['beta1_std'] < 0.3:
+                        print(f"  ✓ 协整参数稳定性良好")
+                    else:
+                        print(f"  ⚠ 协整参数波动较大，可能需要更长窗口")
             else:
-                print(f"  ⚠ 协整参数波动较大，可能需要更长窗口")
+                # Basic GARCH 没有协整参数，显示其他建议
+                if best_row['h_std'] < 0.1:
+                    print(f"  ✓ 套保比例稳定性良好")
+                else:
+                    print(f"  ⚠ 套保比例波动适中")
 
     print("\n" + "=" * 80)
     print("✓ 敏感性分析完成！")
@@ -264,7 +301,22 @@ def run_sensitivity_analysis(data, windows=[60, 90, 120], output_dir='outputs/se
 if __name__ == "__main__":
     # 加载数据
     print("加载数据...")
-    data = preprocess_data("基差数据.xlsx", output_dir='outputs')
+
+    DATA_FILE = 'outputs/hot_coil_2021_latest.xlsx'
+
+    if not os.path.exists(DATA_FILE):
+        print(f"❌ 错误：数据文件不存在 - {DATA_FILE}")
+        print("请先运行 run_basic_garch_correct.py 生成数据文件")
+        exit(1)
+
+    # 使用新模块加载数据
+    data, _ = load_and_preprocess(
+        file_path=DATA_FILE,
+        spot_col='spot',
+        futures_col='futures'
+    )
+
+    print(f"✓ 数据加载成功，共 {len(data)} 行")
 
     # 运行敏感性分析
     results_df = run_sensitivity_analysis(data, windows=[60, 90, 120])
