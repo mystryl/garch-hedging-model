@@ -11,9 +11,10 @@ from typing import Dict, Tuple
 import warnings
 warnings.filterwarnings('ignore')
 
-# 设置中文字体
-plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'SimHei', 'DejaVu Sans']
-plt.rcParams['axes.unicode_minus'] = False
+# 配置中文字体
+from basic_garch_analyzer.font_config import setup_chinese_font
+setup_chinese_font()
+
 sns.set_style('whitegrid')
 
 # 导入现有模块的函数
