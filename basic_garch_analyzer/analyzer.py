@@ -1,6 +1,13 @@
 """
 核心分析器模块
-合并回测评估和报告生成功能
+合并回测评估和报告生成
+
+注意：此模块保留用于全样本回测（备选方案）
+默认使用滚动回测模式（rolling_backtest.py）
+
+要使用全样本回测:
+    >>> config = ModelConfig(enable_rolling_backtest=False)
+    >>> run_analysis(..., config=config)
 """
 import pandas as pd
 import numpy as np
