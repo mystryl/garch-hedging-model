@@ -4,8 +4,7 @@ Basic GARCH Analyzer - GARCH套保模型分析工具
 支持：
 - 作为Python库导入使用
 - 作为命令行工具运行
-- 自动生成完整的回测分析报告
-- 滚动回测（模拟实际套保周期）
+- 自动生成完整的滚动回测分析报告（默认）
 
 Example:
 --------
@@ -16,9 +15,10 @@ Example:
 命令行使用:
     $ python -m basic_garch_analyzer --data data.xlsx --spot 现货价格 --futures 期货价格
 
-滚动回测:
-    >>> from basic_garch_analyzer import run_rolling_backtest
-    >>> result = run_rolling_backtest('data.xlsx', '现货', '期货')
+使用全样本回测（备选）:
+    >>> from basic_garch_analyzer import run_analysis, ModelConfig
+    >>> config = ModelConfig(enable_rolling_backtest=False)
+    >>> result = run_analysis('data.xlsx', '现货', '期货', config=config)
 """
 from basic_garch_analyzer.config import ModelConfig, create_config
 from basic_garch_analyzer.data_loader import load_and_preprocess
@@ -36,9 +36,9 @@ __all__ = [
     'load_and_preprocess',
     'fit_basic_garch',
     'save_model_results',
-    'evaluate_and_report',
+    # 'evaluate_and_report',  # 不再导出（保留作为备份）
     'run_analysis',
-    'run_rolling_backtest'
+    # 'run_rolling_backtest'  # 已整合到 run_analysis 中
 ]
 
 
@@ -132,32 +132,64 @@ def run_analysis(
     model_results_path = f"{config.output_dir}/model_results/h_basic_garch.csv"
     save_model_results(data, model_results, model_results_path)
 
-    # 4. 评估和生成报告
+    # ===== 4. 回测评估（滚动回测或全样本）=====
     print("\n" + "=" * 70)
-    report_info = evaluate_and_report(
-        data=data,
-        results=model_results,
-        selected=selected,
-        config=config,
-        output_dir=config.output_dir
-    )
+
+    if config.enable_rolling_backtest:
+        # 使用滚动回测
+        print("运行滚动回测...")
+        rolling_results = _run_rolling_backtest(
+            data,
+            model_results['h_final'],
+            n_periods=config.n_periods,
+            window_days=config.window_days,
+            seed=config.backtest_seed,
+            tax_rate=config.tax_rate
+        )
+
+        # 生成报告
+        report_info = generate_rolling_backtest_report(
+            data,
+            rolling_results,
+            config.output_dir
+        )
+    else:
+        # 使用全样本回测（备选方案）
+        print("运行全样本回测...")
+        report_info = evaluate_and_report(
+            data=data,
+            results=model_results,
+            selected=selected,
+            config=config,
+            output_dir=config.output_dir
+        )
+    # ==================================================
 
     # 5. 输出摘要
     print("\n" + "=" * 70)
     print(" " * 20 + "分析完成")
     print("=" * 70)
 
-    metrics = report_info['metrics']
-    print(f"\n核心结果:")
-    print(f"  方差降低比例: {metrics['variance_reduction']:.2%}")
-    print(f"  夏普比率 (套保后): {metrics['sharpe_hedged']:.4f}")
-    print(f"  最大回撤 (套保后): {metrics['max_dd_hedged']:.2%}")
-    print(f"  套保效果评级: {metrics['rating']}")
+    if config.enable_rolling_backtest:
+        print(f"\n核心结果（滚动回测）:")
+        print(f"  回测周期数: {rolling_results['n_periods']}")
+        print(f"  平均收益率（套保后）: {rolling_results['avg_return_hedged']:.2%}")
+        print(f"  平均方差降低: {rolling_results['avg_variance_reduction']:.2%}")
+        print(f"  平均最大回撤: {rolling_results['avg_max_dd_hedged']:.2%}")
+    else:
+        metrics = report_info['metrics']
+        print(f"\n核心结果（全样本回测）:")
+        print(f"  方差降低比例: {metrics['variance_reduction']:.2%}")
+        print(f"  夏普比率 (套保后): {metrics['sharpe_hedged']:.4f}")
+        print(f"  最大回撤（套保后）: {metrics['max_dd_hedged']:.2%}")
+        print(f"  套保效果评级: {metrics['rating']}")
 
     return {
         'data': data,
         'selected': selected,
         'model_results': model_results,
+        'rolling_results' if config.enable_rolling_backtest else 'metrics':
+            rolling_results if config.enable_rolling_backtest else report_info.get('metrics'),
         'report_info': report_info,
         'config': config
     }
