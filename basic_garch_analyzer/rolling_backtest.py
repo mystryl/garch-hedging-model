@@ -277,6 +277,11 @@ def run_single_period_backtest(data: pd.DataFrame, start_date: pd.Timestamp,
     # 方差降低
     variance_reduction = 1 - (std_hedged ** 2) / (std_unhedged ** 2)
 
+    # 计算该周期使用的平均套保比例
+    avg_hedge_ratio = np.mean(period_h)
+    median_hedge_ratio = np.median(period_h)
+    std_hedge_ratio = np.std(period_h)
+
     return {
         'start_date': start_date,
         'end_date': period_data.iloc[-1]['date'],
@@ -295,7 +300,11 @@ def run_single_period_backtest(data: pd.DataFrame, start_date: pd.Timestamp,
         'cumulative_unhedged': cumulative_unhedged,
         'cumulative_hedged': cumulative_hedged,
         'drawdown': drawdown,
-        'dates': period_data['date'].values
+        'dates': period_data['date'].values,
+        'avg_hedge_ratio': avg_hedge_ratio,      # 新增：平均套保比例
+        'median_hedge_ratio': median_hedge_ratio,  # 新增：中位数套保比例
+        'std_hedge_ratio': std_hedge_ratio,       # 新增：套保比例标准差
+        'hedge_ratios': period_h                    # 新增：完整套保比例序列
     }
 
 
@@ -442,6 +451,209 @@ def plot_rolling_backtest_results(results: Dict, output_path: str):
     print(f"  ✓ 已保存: {output_path}")
 
 
+def plot_rolling_nav_curve(results: Dict, output_path: str):
+    """
+    绘制滚动回测净值曲线（兼容HTML报告格式）
+
+    为每个周期生成独立的净值曲线图，2x3布局（最多6个周期）
+    主坐标轴：净值曲线，次坐标轴：套保比例曲线
+
+    Parameters:
+    -----------
+    results : Dict
+        回测结果
+    output_path : str
+        输出文件路径
+    """
+    print("[绘图 5/8] 滚动回测净值曲线图...")
+
+    period_results = results['period_results']
+    n_periods = len(period_results)
+
+    # 计算子图布局（2行3列）
+    ncols = min(3, n_periods)
+    nrows = (n_periods + ncols - 1) // ncols
+
+    # 创建图形
+    fig, axes = plt.subplots(nrows, ncols, figsize=(18, 5 * nrows))
+    fig.suptitle('滚动回测：各周期套保前后净值曲线与套保比例', fontsize=14, fontweight='bold', fontproperties=CHINESE_FONT, y=0.995)
+
+    # 如果只有一行，确保axes是2D数组
+    if nrows == 1:
+        axes = axes.reshape(1, -1)
+
+    # 为每个周期绘制独立的净值曲线
+    for i in range(nrows * ncols):
+        row = i // ncols
+        col = i % ncols
+        ax = axes[row, col]
+
+        if i < n_periods:
+            result = period_results[i]
+
+            # 创建次坐标轴（用于套保比例）
+            ax2 = ax.twinx()
+
+            # 绘制未套保和套保后曲线（主坐标轴）
+            ax.plot(result['dates'], result['cumulative_unhedged'],
+                    label='未套保', linewidth=2, alpha=0.7, color='red')
+            ax.plot(result['dates'], result['cumulative_hedged'],
+                    label='套保后', linewidth=2, alpha=0.8, color='green')
+
+            # 绘制套保比例曲线（次坐标轴）
+            ax2.plot(result['dates'], result['hedge_ratios'],
+                    label='套保比例', linewidth=1.5, alpha=0.6,
+                    color='blue', linestyle='--')
+
+            # 标题包含周期信息和收益率
+            title = (f"周期 {i+1}: {result['start_date'].date()} - {result['end_date'].date()}\n"
+                     f"收益率: 未套保={result['total_return_unhedged']:.2%}, "
+                     f"套保={result['total_return_hedged']:.2%}, "
+                     f"方差降低={result['variance_reduction']:.1%}")
+            ax.set_title(title, fontsize=9, fontweight='bold', fontproperties=CHINESE_FONT)
+
+            # 主坐标轴（净值）
+            ax.set_ylabel('净值', fontsize=9, fontproperties=CHINESE_FONT, color='black')
+            ax.tick_params(axis='y', labelsize=8, labelcolor='black')
+            ax.grid(True, alpha=0.3)
+
+            # 次坐标轴（套保比例）
+            ax2.set_ylabel('套保比例', fontsize=9, fontproperties=CHINESE_FONT, color='blue')
+            ax2.tick_params(axis='y', labelsize=8, labelcolor='blue')
+            ax2.set_ylim(0, max(1.0, np.max(result['hedge_ratios']) * 1.1))
+
+            # 合并图例（主坐标轴和次坐标轴）
+            lines1, labels1 = ax.get_legend_handles_labels()
+            lines2, labels2 = ax2.get_legend_handles_labels()
+            ax.legend(lines1 + lines2, labels1 + labels2,
+                    loc='best', prop=CHINESE_FONT, fontsize=7)
+
+            # 设置x轴日期格式
+            ax.tick_params(axis='x', rotation=45, labelsize=8)
+            ax2.tick_params(axis='x', rotation=45, labelsize=8)
+
+            # 应用中文字体
+            apply_chinese_font(ax)
+        else:
+            # 隐藏多余的子图
+            ax.axis('off')
+
+    # 添加总x轴标签（只有最后一行）
+    for col in range(ncols):
+        axes[nrows-1, col].set_xlabel('日期', fontsize=10, fontproperties=CHINESE_FONT)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"  ✓ 已保存: {output_path}")
+
+
+def plot_rolling_drawdown(results: Dict, output_path: str):
+    """
+    绘制滚动回测回撤曲线（兼容HTML报告格式）
+
+    为每个周期生成独立的回撤曲线图，2x3布局（最多6个周期）
+    主坐标轴：回撤曲线，次坐标轴：套保比例曲线
+
+    Parameters:
+    -----------
+    results : Dict
+        回测结果
+    output_path : str
+        输出文件路径
+    """
+    print("[绘图 6/8] 滚动回测回撤曲线图...")
+
+    period_results = results['period_results']
+    n_periods = len(period_results)
+
+    # 计算子图布局（2行3列）
+    ncols = min(3, n_periods)
+    nrows = (n_periods + ncols - 1) // ncols
+
+    # 创建图形
+    fig, axes = plt.subplots(nrows, ncols, figsize=(18, 4 * nrows))
+    fig.suptitle('滚动回测：各周期套保组合回撤曲线与套保比例', fontsize=14, fontweight='bold', fontproperties=CHINESE_FONT, y=0.995)
+
+    # 如果只有一行，确保axes是2D数组
+    if nrows == 1:
+        axes = axes.reshape(1, -1)
+
+    # 为每个周期绘制独立的回撤曲线
+    for i in range(nrows * ncols):
+        row = i // ncols
+        col = i % ncols
+        ax = axes[row, col]
+
+        if i < n_periods:
+            result = period_results[i]
+
+            # 创建次坐标轴（用于套保比例）
+            ax2 = ax.twinx()
+
+            # 绘制回撤曲线（主坐标轴）
+            ax.plot(result['dates'], result['drawdown'],
+                    linewidth=2, color='orange', alpha=0.8, label='回撤')
+
+            # 填充回撤区域
+            ax.fill_between(result['dates'], 0, result['drawdown'],
+                            alpha=0.3, color='orange')
+
+            # 标注最大回撤点
+            max_dd_idx = np.argmin(result['drawdown'])
+            max_dd_date = result['dates'][max_dd_idx]
+            max_dd_value = result['drawdown'][max_dd_idx]
+
+            ax.plot(max_dd_date, max_dd_value,
+                    'v', markersize=10, color='darkred',
+                    label=f'最大回撤: {max_dd_value:.2%}')
+
+            # 绘制套保比例曲线（次坐标轴）
+            ax2.plot(result['dates'], result['hedge_ratios'],
+                    label='套保比例', linewidth=1.5, alpha=0.6,
+                    color='blue', linestyle='--')
+
+            # 标题
+            title = f"周期 {i+1}: {result['start_date'].date()} - {result['end_date'].date()}"
+            ax.set_title(title, fontsize=9, fontweight='bold', fontproperties=CHINESE_FONT)
+
+            # 主坐标轴（回撤）
+            ax.set_ylabel('回撤比例', fontsize=9, fontproperties=CHINESE_FONT, color='black')
+            ax.tick_params(axis='y', labelsize=8, labelcolor='black')
+            ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:.1%}'))
+            ax.grid(True, alpha=0.3)
+
+            # 次坐标轴（套保比例）
+            ax2.set_ylabel('套保比例', fontsize=9, fontproperties=CHINESE_FONT, color='blue')
+            ax2.tick_params(axis='y', labelsize=8, labelcolor='blue')
+            ax2.set_ylim(0, max(1.0, np.max(result['hedge_ratios']) * 1.1))
+
+            # 合并图例（主坐标轴和次坐标轴）
+            lines1, labels1 = ax.get_legend_handles_labels()
+            lines2, labels2 = ax2.get_legend_handles_labels()
+            ax.legend(lines1 + lines2, labels1 + labels2,
+                    loc='best', prop=CHINESE_FONT, fontsize=7)
+
+            # 设置x轴日期格式
+            ax.tick_params(axis='x', rotation=45, labelsize=8)
+            ax2.tick_params(axis='x', rotation=45, labelsize=8)
+
+            # 应用中文字体
+            apply_chinese_font(ax)
+        else:
+            # 隐藏多余的子图
+            ax.axis('off')
+
+    # 添加总x轴标签（只有最后一行）
+    for col in range(ncols):
+        axes[nrows-1, col].set_xlabel('日期', fontsize=10, fontproperties=CHINESE_FONT)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"  ✓ 已保存: {output_path}")
+
+
 def plot_period_comparison(results: Dict, output_path: str):
     """
     绘制各周期对比图
@@ -577,7 +789,7 @@ def plot_period_comparison(results: Dict, output_path: str):
 
 
 def generate_rolling_backtest_report(data: pd.DataFrame, results: Dict,
-                                      output_dir: str):
+                                      output_dir: str, generate_html: bool = False):
     """
     生成滚动回测报告
 
@@ -589,6 +801,8 @@ def generate_rolling_backtest_report(data: pd.DataFrame, results: Dict,
         回测结果
     output_dir : str
         输出目录
+    generate_html : bool
+        是否生成HTML兼容图表（用于替换全样本回测报告中的图表5和6）
     """
     print(f"\n[生成滚动回测报告]...")
 
@@ -600,13 +814,21 @@ def generate_rolling_backtest_report(data: pd.DataFrame, results: Dict,
     # 1. 绘制图表
     print("\n[1/2] 生成可视化图表...")
 
-    # 各周期净值曲线
-    path = os.path.join(figures_dir, '1_periods_nav.png')
-    plot_rolling_backtest_results(results, path)
+    # 如果需要生成HTML兼容图表，使用与HTML报告相同的文件名
+    if generate_html:
+        # 生成HTML报告兼容的图表（替换图表5和6）
+        path = os.path.join(figures_dir, '5_backtest_results.png')
+        plot_rolling_nav_curve(results, path)
 
-    # 周期对比图
-    path = os.path.join(figures_dir, '2_periods_comparison.png')
-    plot_period_comparison(results, path)
+        path = os.path.join(figures_dir, '6_drawdown.png')
+        plot_rolling_drawdown(results, path)
+    else:
+        # 生成滚动回测专用图表
+        path = os.path.join(figures_dir, '1_periods_nav.png')
+        plot_rolling_backtest_results(results, path)
+
+        path = os.path.join(figures_dir, '2_periods_comparison.png')
+        plot_period_comparison(results, path)
 
     # 2. 生成Excel报告
     print("\n[2/2] 生成表格报告...")

@@ -44,3 +44,4 @@ Thumbs.db
 
 # Large outputs (optional - comment out if you want to track outputs)
 # outputs/
+.alma-snapshots

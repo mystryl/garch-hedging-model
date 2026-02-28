@@ -25,8 +25,8 @@ class ModelConfig:
 
     # 滚动回测参数
     enable_rolling_backtest: bool = True  # 启用滚动回测（替代全样本回测）
-    n_periods: int = 5                    # 回测周期数
-    window_days: int = 60                 # 每个周期天数
+    n_periods: int = 6                    # 回测周期数
+    window_days: int = 90                 # 每个周期天数
     backtest_seed: int = 42               # 随机种子
 
     # 输出配置

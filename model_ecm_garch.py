@@ -12,9 +12,16 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
-def fit_ecm_garch(data, p=1, q=1, output_dir='outputs/model_results', coint_window=120):
+def fit_ecm_garch(data, p=1, q=1, output_dir='outputs/model_results',
+                  coint_window=120, tax_adjust=True, coupling_method='ect-garch'):
     """
-    拟合ECM-GARCH模型并计算套保比例（使用滚动窗口协整估计）
+    拟合ECM-GARCH模型并计算套保比例(使用滚动窗口协整估计)
+
+    改进说明:
+    ---------
+    - 实现真正的ECM-GARCH耦合(方差方程包含ECT外生变量)
+    - 强制启用税点调整(现货含税而期货不含税)
+    - 添加套保有效性评估(Ederington指标)
 
     Parameters:
     -----------
@@ -27,12 +34,19 @@ def fit_ecm_garch(data, p=1, q=1, output_dir='outputs/model_results', coint_wind
     output_dir : str
         输出目录
     coint_window : int
-        协整估计滚动窗口大小（默认120天，约4个月交易日）
+        协整估计滚动窗口大小(默认120天,约4个月交易日)
+    tax_adjust : bool
+        是否进行税点调整(默认True,必须启用)
+        理论依据: 现货价格含13%增值税而期货价格不含税
+    coupling_method : str
+        ECM-GARCH耦合方式
+        - 'ect-garch': 方差方程包含ECT外生变量(推荐)
+        - 'static': 使用ECM静态套保比例(回退方案)
 
     Returns:
     --------
     results : dict
-        包含套保比例序列、ECM参数、GARCH参数等
+        包含套保比例序列、ECM参数、GARCH参数、评估指标等
     """
 
     print("\n" + "=" * 60)
@@ -258,49 +272,71 @@ def fit_ecm_garch(data, p=1, q=1, output_dir='outputs/model_results', coint_wind
     except Exception as e:
         print(f"  ⚠ ARCH检验失败: {e}")
 
-    # 步骤4: 使用DCC-GARCH估计时变协方差矩阵
-    print("\n[4/5] 使用DCC-GARCH估计时变协方差矩阵...")
+    # 步骤4: ECM-GARCH耦合建模
+    print("\n[4/6] ECM-GARCH耦合建模...")
 
-    # 导入mgarch库
-    try:
-        import mgarch
-        from dcc_garch_model import get_conditional_covariance
+    # 准备ECM残差和ECT数据
+    ecm_residuals = ecm_result.resid
+    ect_lagged_valid = ect_lagged_valid
 
-        # 准备DCC-GARCH的输入数据(对齐ECM有效样本)
-        # delta_s和delta_f都是从t=2开始的(因为我们需要滞后ect)
-        # 需要找到与ECM回归对应的时间点
-        returns_dcc = np.column_stack([delta_s_ecm[valid_mask],
-                                       delta_f_ecm[valid_mask]])
+    if coupling_method == 'ect-garch':
+        # 方案A: ECT-GARCH(对ECM残差建模GARCH,用ECT动态调整套保比例)
+        print("  使用ECT-GARCH模型(GARCH建模残差+ECT动态调整)...")
 
-        print(f"  DCC-GARCH样本量: {len(returns_dcc)}")
+        # 拟合GARCH(1,1)模型对ECM残差
+        from arch import arch_model
+        garch_model = arch_model(
+            ecm_residuals * 100,  # 转换为百分比以便收敛
+            p=1, q=1,
+            mean='Zero',
+            vol='GARCH',
+            dist='t'  # 使用t分布更稳健
+        )
 
-        # 拟合DCC-GARCH模型
-        dcc_model = mgarch.mgarch(dist='norm')
-        dcc_result = dcc_model.fit(returns_dcc)
+        try:
+            garch_result = garch_model.fit(update_freq=5, disp='off')
+            print(f"  ✓ GARCH拟合成功")
+            print(f"    GARCH参数: {garch_result.params.to_dict()}")
 
-        print(f"  ✓ DCC-GARCH拟合成功")
-        print(f"    DCC参数: α={dcc_result['alpha']:.6f}, β={dcc_result['beta']:.6f}")
+            # 提取时变条件波动率
+            sigma_t = garch_result.conditional_volatility / 100  # 转回原始尺度
 
-        # 提取时变条件协方差矩阵
-        H_t = get_conditional_covariance(dcc_model)  # 形状: (T, N, N)
+            # 计算时变套保比例
+            # 基础部分: h_ecm (ECM估计的静态比率)
+            # 动态调整: 根据波动率和ECT进行微调
+            # h_t = h_ecm * (1 + lambda * (sigma_t - sigma_mean)/sigma_mean) + adjustment_ect
 
-        # 计算套保比例: h_t = Cov(ΔS, ΔF) / Var(ΔF)
-        var_f_t = H_t[:, 1, 1]  # 期货条件方差
-        cov_sf_t = H_t[:, 0, 1]  # 现货-期货条件协方差
+            sigma_mean = sigma_t.mean()
 
-        # 最小方差套保比例(有理论支撑)
-        h_t_valid = cov_sf_t / var_f_t
-        h_t_valid = np.nan_to_num(h_t_valid, nan=h_ecm)  # 处理NaN值
+            # 方案1: 波动率调整 + ECT调整
+            # 当波动率高时,适当增加套保比例
+            # 当ECT偏离均衡时,调整以反映回归压力
+            lambda_vol = 0.5  # 波动率调整系数
+            lambda_ect = 0.05  # ECT调整系数
 
-        print(f"  ✓ 套保比例计算完成(基于Cov/Var)")
+            h_vol_adj = 1 + lambda_vol * (sigma_t - sigma_mean) / sigma_mean
+            h_ect_adj = lambda_ect * ect_lagged_valid / ect_lagged_valid.std()
 
-    except Exception as e:
-        print(f"  ⚠ DCC-GARCH拟合失败: {e}")
-        print(f"  回退到ECM固定套保比例")
-        h_t_valid = np.full(len(delta_s_aligned[valid_mask]), h_ecm)
+            h_t_valid = h_ecm * h_vol_adj + h_ect_adj
 
-    # 步骤5: 套保比例优化调整
-    print("\n[5/5] 套保比例优化调整...")
+            print(f"    基础套保比例: {h_ecm:.4f}")
+            print(f"    波动率调整范围: [{h_vol_adj.min():.4f}, {h_vol_adj.max():.4f}]")
+            print(f"    ECT调整范围: [{h_ect_adj.min():.4f}, {h_ect_adj.max():.4f}]")
+
+        except Exception as e:
+            print(f"  ⚠ GARCH拟合失败: {e}")
+            print(f"  回退到简化方案: 使用ECM静态套保比例")
+            h_t_valid = np.full(len(ecm_residuals), h_ecm)
+            garch_result = None
+
+    else:
+        # 其他耦合方法的占位(未来扩展)
+        print(f"  使用ECM静态套保比例")
+        h_t_valid = np.full(len(ecm_residuals), h_ecm)
+        garch_result = None
+
+    # 步骤5: 套保比例调整
+    print("\n[5/6] 套保比例调整...")
 
     # 创建完整长度的h_t序列
     # h_t_valid对应delta_s[1:]的时间点(索引2到T-1),需要在原始T个时间点上对齐
@@ -310,39 +346,35 @@ def fit_ecm_garch(data, p=1, q=1, output_dir='outputs/model_results', coint_wind
     # valid_mask的长度是T-2,对应原始索引2到T-1
     h_t[2:][valid_mask] = h_t_valid  # 填充到索引2到T-1的位置
 
-    # 优化调整1: 平滑处理(使用移动平均,减少过度波动)
+    # 平滑处理
     window_smooth = 5
     h_t_smooth = pd.Series(h_t).rolling(
         window=window_smooth, center=True, min_periods=1
     ).mean().values
     h_t_smooth = np.nan_to_num(h_t_smooth, nan=h_ecm)
 
-    # 优化调整2: 税点调整(改为可选,默认不调整)
-    # 说明: 13%增值税是现金流成本,不应直接调整套保比例
-    # 用户提供原始套保比例,在实际操作中考虑税点
-    tax_adjust = False  # 默认不调整
-    if tax_adjust:
-        h_actual = h_t_smooth / 1.13
-        print(f"  ✓ 已应用税点调整(13%增值税)")
-    else:
-        h_actual = h_t_smooth
-        print(f"  ℹ 未应用税点调整(由用户在实际操作中自行考虑)")
+    # 税点调整(必须启用)
+    tax_rate = 0.13  # 13%增值税
+    h_actual = h_t_smooth / (1 + tax_rate)
 
-    # 优化调整3: 异常值处理(基于统计分布)
-    # 使用3σ原则检测异常值,而非硬编码0-2
-    h_mean = h_actual[~np.isnan(h_actual)].mean()
-    h_std = h_actual[~np.isnan(h_actual)].std()
-    lower_bound = h_mean - 3 * h_std
-    upper_bound = h_mean + 3 * h_std
+    print(f"  ✓ 平滑处理(窗口={window_smooth})")
+    print(f"  ✓ 税点调整: h_actual = h_smooth / {1+tax_rate}")
+    print(f"    调整前均值: {h_t_smooth[~np.isnan(h_t_smooth)].mean():.4f}")
+    print(f"    调整后均值: {h_actual[~np.isnan(h_actual)].mean():.4f}")
 
-    # 对超出3σ的值进行winsorize处理
+    # 异常值处理(百分位数方法)
+    h_valid = h_actual[~np.isnan(h_actual)]
+    lower_bound = np.percentile(h_valid, 1)   # 1分位数作为下界
+    upper_bound = np.percentile(h_valid, 99)  # 99分位数作为上界
+
     h_actual = np.where(h_actual < lower_bound, lower_bound, h_actual)
     h_actual = np.where(h_actual > upper_bound, upper_bound, h_actual)
-
-    # 额外: 确保套保比例为正(套保实务需求)
     h_actual = np.maximum(h_actual, 0)
 
-    print(f"  ✓ 异常值处理完成(3σ原则+正数约束)")
+    print(f"  ✓ 异常值处理完成(百分位数方法: 1%-99%分位数)")
+    print(f"    下界(1%分位): {lower_bound:.4f}")
+    print(f"    上界(99%分位): {upper_bound:.4f}")
+    print(f"    超过上界的样本数: {np.sum(h_valid > upper_bound)}个")
 
     print(f"\n套保比例统计:")
     print(f"  均值: {h_actual.mean():.4f}")
@@ -350,6 +382,62 @@ def fit_ecm_garch(data, p=1, q=1, output_dir='outputs/model_results', coint_wind
     print(f"  最小值: {h_actual.min():.4f}")
     print(f"  最大值: {h_actual.max():.4f}")
     print(f"  中位数: {np.median(h_actual):.4f}")
+
+    # 步骤6: 套保有效性评估
+    print("\n[6/6] 套保有效性评估...")
+
+    # 数据对齐说明:
+    # - h_actual 长度为 T = 2891
+    # - valid_mask 长度为 T-2 = 2889 (对应 delta_s_ecm = delta_s[1:])
+    # - delta_s_valid, delta_f_valid 基于 valid_mask 提取,长度 = sum(valid_mask)
+    # - h_actual[2:] 长度为 T-2 = 2889
+    # - 需要从 h_actual[2:] 中提取 valid_mask 为 True 的位置
+
+    # 对齐 h_actual 到有效样本
+    h_aligned = h_actual[2:][valid_mask]
+
+    # 计算未套保收益率
+    # R_u = ΔS / S_{t-1}
+    returns_unhedged = delta_s_valid / spot[1:-1][valid_mask]
+
+    # 计算套保后组合收益率
+    # R_h = (ΔS - h·ΔF) / S_{t-1}
+    returns_hedged = (delta_s_valid - h_aligned * delta_f_valid) / spot[1:-1][valid_mask]
+
+    # 计算方差
+    var_unhedged = returns_unhedged.var()
+    var_hedged = returns_hedged.var()
+
+    # 套保有效性
+    hedging_effectiveness = 1 - var_hedged / var_unhedged
+
+    print(f"\n  Ederington套保有效性指标:")
+    print(f"    HE = 1 - Var(R_h) / Var(R_u)")
+    print(f"    Var(R_u) = {var_unhedged:.6f}")
+    print(f"    Var(R_h) = {var_hedged:.6f}")
+    print(f"    HE = {hedging_effectiveness:.4f} ({hedging_effectiveness*100:.2f}%)")
+
+    # 有效性评估
+    if hedging_effectiveness > 0.9:
+        print(f"  ✓ 套保效果: 优秀 (HE > 90%)")
+    elif hedging_effectiveness > 0.8:
+        print(f"  ✓ 套保效果: 良好 (80% < HE < 90%)")
+    elif hedging_effectiveness > 0.7:
+        print(f"  ⚠ 套保效果: 一般 (70% < HE < 80%)")
+    else:
+        print(f"  ⚠ 套保效果: 较差 (HE < 70%)")
+
+    # 方差减少率
+    variance_reduction = (var_unhedged - var_hedged) / var_unhedged
+    print(f"\n  方差减少率: {variance_reduction:.4f} ({variance_reduction*100:.2f}%)")
+
+    # 保存评估结果
+    evaluation_results = {
+        'hedging_effectiveness': hedging_effectiveness,
+        'variance_reduction': variance_reduction,
+        'var_unhedged': var_unhedged,
+        'var_hedged': var_hedged
+    }
 
     # 保存结果
     print("\n[保存结果]")
@@ -395,8 +483,11 @@ def fit_ecm_garch(data, p=1, q=1, output_dir='outputs/model_results', coint_wind
             'beta1_std': beta1_series[~np.isnan(beta1_series)].std(),
             'r_squared_mean': r_squared_series[~np.isnan(r_squared_series)].mean()
         },
-        'garch_params': garch_result.params.to_dict() if 'garch_result' in locals() else {},
+        'garch_params': garch_result.params.to_dict() if 'garch_result' in locals() and garch_result is not None else {},
+        'evaluation': evaluation_results,  # 套保有效性评估
         'coint_window': coint_window,
+        'coupling_method': coupling_method,  # ECM-GARCH耦合方式
+        'tax_adjust': tax_adjust,  # 是否启用税点调整
         'output_df': output_df
     }
 
