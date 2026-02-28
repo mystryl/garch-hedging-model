@@ -41,26 +41,33 @@ def setup_chinese_font():
         'DejaVu Sans',
     ]
 
-    # 获取系统所有可用字体
+    # 获取系统所有可用字体（强制重建缓存）
+    try:
+        fm._rebuild()
+    except:
+        pass
+
     available_fonts = [f.name for f in fm.fontManager.ttflist]
 
     # 查找第一个可用的中文字体
     for font in font_candidates:
         if font in available_fonts:
-            plt.rcParams['font.sans-serif'] = [font] + plt.rcParams['font.sans-serif']
+            # 直接设置字体，不追加到列表
+            plt.rcParams['font.sans-serif'] = [font]
             plt.rcParams['axes.unicode_minus'] = False
 
             # 验证字体是否真的可以渲染中文
             try:
                 test_prop = fm.FontProperties(family=font)
-                # 如果可以获取字体名称，说明字体可用
-                test_prop.get_name()
+                actual_font = test_prop.get_name()
+                print(f"✓ 已设置中文字体: {actual_font}")
                 return font
             except:
                 continue
 
     # 如果没有找到任何中文字体，使用默认设置
     print("⚠️  警告: 未找到可用的中文字体，图表中的中文可能无法正常显示")
+    print(f"   可用字体数量: {len(available_fonts)}")
     return None
 
 
