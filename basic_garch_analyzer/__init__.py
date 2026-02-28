@@ -5,6 +5,7 @@ Basic GARCH Analyzer - GARCH套保模型分析工具
 - 作为Python库导入使用
 - 作为命令行工具运行
 - 自动生成完整的回测分析报告
+- 滚动回测（模拟实际套保周期）
 
 Example:
 --------
@@ -14,11 +15,19 @@ Example:
 
 命令行使用:
     $ python -m basic_garch_analyzer --data data.xlsx --spot 现货价格 --futures 期货价格
+
+滚动回测:
+    >>> from basic_garch_analyzer import run_rolling_backtest
+    >>> result = run_rolling_backtest('data.xlsx', '现货', '期货')
 """
 from basic_garch_analyzer.config import ModelConfig, create_config
 from basic_garch_analyzer.data_loader import load_and_preprocess
 from basic_garch_analyzer.basic_garch_model import fit_basic_garch, save_model_results
 from basic_garch_analyzer.analyzer import evaluate_and_report
+from basic_garch_analyzer.rolling_backtest import (
+    run_rolling_backtest as _run_rolling_backtest,
+    generate_rolling_backtest_report
+)
 
 __version__ = '1.0.0'
 __all__ = [
@@ -28,7 +37,8 @@ __all__ = [
     'fit_basic_garch',
     'save_model_results',
     'evaluate_and_report',
-    'run_analysis'
+    'run_analysis',
+    'run_rolling_backtest'
 ]
 
 
@@ -148,6 +158,123 @@ def run_analysis(
         'data': data,
         'selected': selected,
         'model_results': model_results,
+        'report_info': report_info,
+        'config': config
+    }
+
+
+def run_rolling_backtest(
+    excel_path: str,
+    spot_col: str,
+    futures_col: str,
+    date_col: str = None,
+    config: ModelConfig = None,
+    n_periods: int = 5,
+    window_days: int = 60,
+    seed: int = 42,
+    output_dir: str = 'outputs/rolling_backtest'
+) -> dict:
+    """
+    运行滚动回测（模拟实际套保周期）
+
+    随机抽取多个时间点，每个回测固定天数，避开交割月份
+
+    Parameters:
+    -----------
+    excel_path : str
+        Excel 文件路径
+    spot_col : str
+        现货价格列名
+    futures_col : str
+        期货价格列名
+    date_col : str, optional
+        日期列名
+    config : ModelConfig, optional
+        模型配置对象
+    n_periods : int
+        回测周期数（默认5个）
+    window_days : int
+        每个周期天数（默认60天）
+    seed : int
+        随机种子
+    output_dir : str
+        输出目录
+
+    Returns:
+    --------
+    result : dict
+        回测结果
+    """
+    print("\n" + "=" * 70)
+    print(" " * 15 + "Basic GARCH Analyzer")
+    print(" " * 10 + "滚动回测分析系统")
+    print("=" * 70)
+
+    # 1. 准备配置
+    if config is None:
+        config = ModelConfig()
+
+    print(f"\n📋 配置参数:")
+    print(f"  回测周期数: {n_periods}")
+    print(f"  每个周期: {window_days} 天")
+    print(f"  避开交割月: 1月、5月、10月")
+    print(f"  随机种子: {seed}")
+
+    # 2. 加载和预处理数据
+    print("\n" + "=" * 70)
+    data, selected = load_and_preprocess(
+        file_path=excel_path,
+        date_col=date_col,
+        spot_col=spot_col,
+        futures_col=futures_col,
+        output_file=None
+    )
+
+    # 3. 拟合 GARCH 模型
+    print("\n" + "=" * 70)
+    model_results = fit_basic_garch(
+        data,
+        p=config.p,
+        q=config.q,
+        corr_window=config.corr_window,
+        tax_rate=config.tax_rate
+    )
+
+    # 4. 运行滚动回测
+    print("\n" + "=" * 70)
+    rolling_results = _run_rolling_backtest(
+        data,
+        model_results['h_final'],
+        n_periods=n_periods,
+        window_days=window_days,
+        seed=seed,
+        tax_rate=config.tax_rate
+    )
+
+    # 5. 生成报告
+    print("\n" + "=" * 70)
+    report_info = generate_rolling_backtest_report(
+        data,
+        rolling_results,
+        output_dir
+    )
+
+    # 6. 输出摘要
+    print("\n" + "=" * 70)
+    print(" " * 20 + "滚动回测完成")
+    print("=" * 70)
+
+    print(f"\n核心结果:")
+    print(f"  回测周期数: {rolling_results['n_periods']}")
+    print(f"  平均收益率（套保后）: {rolling_results['avg_return_hedged']:.2%}")
+    print(f"  平均方差降低: {rolling_results['avg_variance_reduction']:.2%}")
+    print(f"  平均最大回撤: {rolling_results['avg_max_dd_hedged']:.2%}")
+
+    return {
+        'data': data,
+        'selected': selected,
+        'model_results': model_results,
+        'rolling_results': rolling_results,
         'report_info': report_info,
         'config': config
     }

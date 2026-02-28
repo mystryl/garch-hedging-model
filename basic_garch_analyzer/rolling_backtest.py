@@ -6,22 +6,73 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import matplotlib.font_manager as fm
+import os
 from typing import List, Dict
 import warnings
 warnings.filterwarnings('ignore')
 
-# 配置中文字体
-try:
-    from basic_garch_analyzer.font_config import setup_chinese_font, CHINESE_FONT
-    setup_chinese_font()
-except ImportError:
-    # 回退到默认配置
-    CHINESE_FONT = None
-
+# 先设置绘图风格
 sns.set_style('whitegrid')
+
+# 配置中文字体（必须在 set_style 之后）
+from basic_garch_analyzer.font_config import setup_chinese_font
+setup_chinese_font()
+
+# 创建全局的中文字体属性对象（从字体文件路径直接加载）
+font_path = '/System/Library/Fonts/Hiragino Sans GB.ttc'
+if os.path.exists(font_path):
+    CHINESE_FONT = fm.FontProperties(fname=font_path)
+else:
+    CHINESE_FONT = None
 
 # 交割月常量
 DELIVERY_MONTHS = [1, 5, 10]  # 1月、5月、10月为交割月份
+
+
+def apply_chinese_font(fig_or_ax):
+    """
+    应用中文字体到图表的所有文本元素
+    """
+    if CHINESE_FONT is None:
+        return
+
+    # 如果传入的是 numpy ndarray (axes 数组)
+    if hasattr(fig_or_ax, 'flatten') and not hasattr(fig_or_ax, 'axes'):
+        axes_list = fig_or_ax.flatten()
+        fig = axes_list[0].figure if len(axes_list) > 0 else None
+    # 如果传入的是 Axes
+    elif hasattr(fig_or_ax, 'figure'):
+        axes_list = [fig_or_ax]
+        fig = fig_or_ax.figure
+    # 如果传入的是 Figure
+    else:
+        fig = fig_or_ax
+        axes_list = fig.axes
+
+    # 应用字体到所有文本元素
+    for ax in axes_list:
+        # 标题和标签
+        if ax.get_title():
+            ax.set_title(ax.get_title(), fontproperties=CHINESE_FONT)
+        if ax.get_xlabel():
+            ax.set_xlabel(ax.get_xlabel(), fontproperties=CHINESE_FONT)
+        if ax.get_ylabel():
+            ax.set_ylabel(ax.get_ylabel(), fontproperties=CHINESE_FONT)
+
+        # 刻度标签
+        for label in ax.get_xticklabels() + ax.get_yticklabels():
+            label.set_fontproperties(CHINESE_FONT)
+
+        # 图例
+        legend = ax.get_legend()
+        if legend:
+            for text in legend.get_texts():
+                text.set_fontproperties(CHINESE_FONT)
+
+        # 注释文本
+        for text in ax.texts:
+            text.set_fontproperties(CHINESE_FONT)
 
 
 def is_delivery_month(date: pd.Timestamp) -> bool:
@@ -40,33 +91,33 @@ def is_delivery_month(date: pd.Timestamp) -> bool:
     return date.month in DELIVERY_MONTHS
 
 
-def is_near_delivery_month(date: pd.Timestamp, window_days: int = 90) -> bool:
+def is_near_delivery_month(date: pd.Timestamp, window_days: int = 30) -> bool:
     """
-    判断是否临近交割月份（交割月前window_days天内）
+    判断是否临近交割月份（交割月前后window_days天内）
 
     Parameters:
     -----------
     date : pd.Timestamp
         日期
     window_days : int
-        预警窗口天数
+        预警窗口天数（默认30天）
 
     Returns:
     --------
     bool : 是否临近交割月
     """
-    year = date.year
+    # 只检查是否在交割月本身
+    if date.month in DELIVERY_MONTHS:
+        return True
 
+    # 检查是否在交割月前 window_days 天内
     for dm in DELIVERY_MONTHS:
-        # 计算当年的交割月日期
-        delivery_date = pd.Timestamp(f'{year}-{dm:02d}-01')
-
-        # 计算距离交割月的天数
-        days_diff = (date - delivery_date).days
-
-        # 如果在预警窗口内
-        if -window_days <= days_diff <= window_days:
-            return True
+        if dm > date.month:
+            # 计算到下一个交割月的天数
+            next_delivery = pd.Timestamp(f'{date.year}-{dm:02d}-01')
+            days_diff = (next_delivery - date).days
+            if 0 <= days_diff <= window_days:
+                return True
 
     return False
 
@@ -153,7 +204,8 @@ def select_backtest_start_dates(data: pd.DataFrame, n_periods: int = 5,
 
 def run_single_period_backtest(data: pd.DataFrame, start_date: pd.Timestamp,
                                hedge_ratios: np.ndarray,
-                               window_days: int = 60) -> Dict:
+                               window_days: int = 60,
+                               tax_rate: float = 0.13) -> Dict:
     """
     运行单个60天周期的回测
 
@@ -167,6 +219,8 @@ def run_single_period_backtest(data: pd.DataFrame, start_date: pd.Timestamp,
         套保比例序列
     window_days : int
         回测窗口天数
+    tax_rate : float
+        增值税率（现货收益需要考虑增值税）
 
     Returns:
     --------
@@ -186,9 +240,14 @@ def run_single_period_backtest(data: pd.DataFrame, start_date: pd.Timestamp,
     # 对应的套保比例
     period_h = hedge_ratios[start_idx:end_idx]
 
-    # 计算套保后收益率
-    r_hedged = period_data['r_s'].values - period_h * period_data['r_f'].values
-    r_unhedged = period_data['r_s'].values
+    # 计算套保后收益率（考虑税点）
+    # 现货收益需要除以(1+税率)，因为现货盈利需要缴纳增值税
+    r_s = period_data['r_s'].values
+    r_f = period_data['r_f'].values
+
+    # 套保收益 = 现货收益/(1+税率) - 套保比例 * 期货收益
+    r_hedged = r_s / (1 + tax_rate) - period_h * r_f
+    r_unhedged = r_s
 
     # 计算累计收益率
     cumulative_unhedged = np.cumprod(1 + r_unhedged)
@@ -223,7 +282,7 @@ def run_single_period_backtest(data: pd.DataFrame, start_date: pd.Timestamp,
         'end_date': period_data.iloc[-1]['date'],
         'period_days': len(period_data),
         'total_return_unhedged': total_return_unhedged,
-        'total_return_hedged': total_return_hed,
+        'total_return_hedged': total_return_hedged,
         'annual_return_unhedged': annual_return_unhedged,
         'annual_return_hedged': annual_return_hedged,
         'std_unhedged': std_unhedged,
@@ -242,7 +301,7 @@ def run_single_period_backtest(data: pd.DataFrame, start_date: pd.Timestamp,
 
 def run_rolling_backtest(data: pd.DataFrame, hedge_ratios: np.ndarray,
                          n_periods: int = 5, window_days: int = 60,
-                         seed: int = 42) -> Dict:
+                         seed: int = 42, tax_rate: float = 0.13) -> Dict:
     """
     运行滚动回测
 
@@ -291,7 +350,7 @@ def run_rolling_backtest(data: pd.DataFrame, hedge_ratios: np.ndarray,
         print(f"  起始日期: {start_date.date()}")
 
         result = run_single_period_backtest(
-            data, start_date, hedge_ratios, window_days
+            data, start_date, hedge_ratios, window_days, tax_rate
         )
 
         period_results.append(result)
@@ -373,6 +432,9 @@ def plot_rolling_backtest_results(results: Dict, output_path: str):
         ax.tick_params(axis='x', rotation=45)
 
     axes[-1].set_xlabel('日期', fontsize=10, fontproperties=CHINESE_FONT)
+
+    # 应用中文字体到所有元素
+    apply_chinese_font(axes)
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
@@ -504,6 +566,9 @@ def plot_period_comparison(results: Dict, output_path: str):
 
     ax4.set_title('回测汇总', fontproperties=CHINESE_FONT,
                   fontsize=12, fontweight='bold', pad=20)
+
+    # 应用中文字体到所有子图
+    apply_chinese_font(axes)
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
