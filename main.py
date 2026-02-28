@@ -18,7 +18,7 @@ from data_preprocessing import preprocess_data
 from eda_analysis import generate_eda_report
 from model_basic_garch import fit_basic_garch
 from model_ecm_garch import fit_ecm_garch
-from model_dcc_garch import fit_dcc_garch
+from model_dcc_garch import fit_dcc_garch  # 修复：使用更新后的model_dcc_garch.py
 from model_ecm_dcc_garch import fit_ecm_dcc_garch
 from hedging_effectiveness import compare_models
 from generate_report import generate_comprehensive_report

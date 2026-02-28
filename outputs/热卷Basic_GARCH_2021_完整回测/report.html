@@ -1,0 +1,160 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Basic GARCH 套保策略回测报告</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #34495e;
+            border-left: 4px solid #3498db;
+            padding-left: 15px;
+            margin-top: 30px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #3498db;
+            color: white;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .metric {
+            display: inline-block;
+            margin: 10px;
+            padding: 15px;
+            background-color: #ecf0f1;
+            border-radius: 5px;
+            width: 200px;
+        }
+        .metric-title {
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+        .metric-value {
+            font-size: 24px;
+            color: #3498db;
+            font-weight: bold;
+        }
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Basic GARCH 套保策略回测报告</h1>
+        <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
+            <h3 style="color: #856404; margin-top: 0;">🔄 滚动回测模式</h3>
+            <p style="color: #856404; margin-bottom: 0;">
+                本报告采用<strong>滚动回测</strong>模式：随机抽取6个时间点，每个回测90天，避开交割月份（1、5、10月）。
+                回测结果更贴近实际套保操作，图表5-6为滚动回测结果，其他图表基于全样本数据。
+            </p>
+        </div>
+        
+
+        <h2>📊 数据配置</h2>
+        <table>
+            <tr><th>项目</th><th>值</th></tr>
+            <tr><td>现货列名</td><td>spot</td></tr>
+            <tr><td>期货列名</td><td>futures</td></tr>
+            <tr><td>数据期间</td><td>2021-01-06 至 2026-02-27</td></tr>
+            <tr><td>样本量</td><td>540 天</td></tr>
+        </table>
+
+        <h2>🎯 核心指标</h2>
+        <div class="metric">
+            <div class="metric-title">方差降低比例</div>
+            <div class="metric-value">84.24%</div>
+        </div>
+        <div class="metric">
+            <div class="metric-title">Ederington指标</div>
+            <div class="metric-value">0.8424</div>
+        </div>
+        <div class="metric">
+            <div class="metric-title">套保后夏普比率</div>
+            <div class="metric-value">0.0225</div>
+        </div>
+        <div class="metric">
+            <div class="metric-title">套保后最大回撤</div>
+            <div class="metric-value">-3.50%</div>
+        </div>
+
+        <h2>📈 详细结果</h2>
+        <h3>价格走势</h3>
+        <img src="figures/1_price_series.png" alt="价格走势图">
+
+        <h3>收益率分析</h3>
+        <img src="figures/2_returns.png" alt="收益率分布图">
+
+        <h3>套保比例</h3>
+        <img src="figures/3_hedge_ratio.png" alt="套保比例时变图">
+
+        <h3>波动率与相关性</h3>
+        <img src="figures/4_volatility.png" alt="波动率图">
+
+        <h3>回测净值曲线</h3>
+        <img src="figures/5_backtest_results.png" alt="净值曲线图">
+
+        <h3>回撤分析</h3>
+        <img src="figures/6_drawdown.png" alt="回撤曲线图">
+
+        <h3>性能指标对比</h3>
+        <img src="figures/7_performance_metrics.png" alt="性能指标图">
+
+        <h3>汇总表格</h3>
+        <img src="figures/8_summary_table.png" alt="汇总表格">
+
+        <h2>📋 完整指标表</h2>
+        <table>
+            <tr><th>指标</th><th>未套保</th><th>套保后</th></tr>
+            <tr><td>收益率均值</td><td>-0.000109</td><td>0.000009</td></tr>
+            <tr><td>收益率标准差</td><td>0.009526</td><td>0.003745</td></tr>
+            <tr><td>夏普比率</td><td>-0.0217</td><td>0.0225</td></tr>
+            <tr><td>最大回撤</td><td>-12.62%</td><td>-3.50%</td></tr>
+            <tr><td>VaR (95%)</td><td>0.015718</td><td>0.006180</td></tr>
+            <tr><td>CVaR (95%)</td><td>0.019053</td><td>0.007490</td></tr>
+        </table>
+
+        <div style="text-align: center; margin-top: 50px; color: #7f8c8d;">
+            <p>报告生成时间: 2026-03-01 06:43:14</p>
+            <p>Basic GARCH 套保策略分析系统</p>
+        </div>
+    </div>
+</body>
+</html>
+    

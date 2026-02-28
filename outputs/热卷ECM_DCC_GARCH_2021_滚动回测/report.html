@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ECM-DCC-GARCH模型套保回测报告</title>
+    <style>
+        body {
+            font-family: Arial, 'Microsoft YaHei', sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            border-bottom: 3px solid #e74c3c;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #34495e;
+            border-left: 4px solid #e74c3c;
+            padding-left: 15px;
+            margin-top: 30px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #e74c3c;
+            color: white;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .metric {
+            display: inline-block;
+            margin: 10px;
+            padding: 15px;
+            background-color: #ecf0f1;
+            border-radius: 5px;
+            width: 200px;
+        }
+        .metric-title {
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+        .metric-value {
+            font-size: 24px;
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin: 20px 0;
+        }
+        .good { color: #27ae60; font-weight: bold; }
+        .warning { color: #f39c12; font-weight: bold; }
+        .bad { color: #e74c3c; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ECM-DCC-GARCH模型套保回测报告</h1>
+
+        <h2>📊 数据配置</h2>
+        <table>
+            <tr><th>项目</th><th>值</th></tr>
+            <tr><td>数据文件</td><td>outputs/hot_coil_2021_latest.xlsx</td></tr>
+            <tr><td>样本量</td><td>1245 天</td></tr>
+            <tr><td>起始日期</td><td>2021-01-05</td></tr>
+            <tr><td>结束日期</td><td>2026-02-27</td></tr>
+        </table>
+
+        <h2>🎯 模型参数</h2>
+        <table>
+            <tr><th>参数</th><th>值</th></tr>
+            <tr><td>模型类型</td><td>ECM-DCC-GARCH</td></tr>
+            <tr><td>GARCH参数</td><td>(1, 1)</td></tr>
+            <tr><td>协整窗口</td><td>120 天</td></tr>
+            <tr><td>税率</td><td>13.0%</td></tr>
+        </table>
+
+        <h2>📈 模型结果</h2>
+        <table>
+            <tr><th>指标</th><th>值</th><th>说明</th></tr>
+            <tr><td>误差修正系数 γ</td><td>-0.030689</td>
+                <td><span class="good">✓ 反向修正（正确）</span></td></tr>
+            <tr><td>基础套保比例 h</td><td>0.6424</td><td>ECM部分的套保比例</td></tr>
+            <tr><td>动态相关系数均值</td><td>0.0123</td>
+                <td><span class="warning">⚠ 偏低（几乎为常数）</span></td></tr>
+            <tr><td>最终套保比例均值</td><td>0.0655</td><td>考虑DCC调整后</td></tr>
+        </table>
+
+        <h2>⭐ 核心指标</h2>
+        <div class="metric">
+            <div class="metric-title">方差降低比例</div>
+            <div class="metric-value">22.45%</div>
+        </div>
+        <div class="metric">
+            <div class="metric-title">Ederington有效性</div>
+            <div class="metric-value">0.2245</div>
+        </div>
+        <div class="metric">
+            <div class="metric-title">平均收益率（未套保）</div>
+            <div class="metric-value">-2.58%</div>
+        </div>
+        <div class="metric">
+            <div class="metric-title">平均收益率（套保后）</div>
+            <div class="metric-value">-2.26%</div>
+        </div>
+
+        <h2>📊 图表</h2>
+        <h3>价格走势</h3>
+        <img src="figures/1_price_series.png" alt="价格走势图">
+
+        <h3>收益率分布</h3>
+        <img src="figures/2_returns.png" alt="收益率分布图">
+
+        <h3>套保比例时变</h3>
+        <img src="figures/3_hedge_ratio.png" alt="套保比例时变图">
+
+        <h3>6个周期净值曲线</h3>
+        <img src="figures/5_backtest_results.png" alt="6个周期净值曲线">
+
+        <h3>6个周期回撤分析</h3>
+        <img src="figures/6_drawdown.png" alt="6个周期回撤分析">
+
+        <h2>📋 6个回测周期详细结果</h2>
+        <table>
+            <tr>
+                <th>周期</th>
+                <th>起始日期</th>
+                <th>结束日期</th>
+                <th>未套保收益率</th>
+                <th>套保收益率</th>
+                <th>方差降低</th>
+                <th>平均套保比例</th>
+            </tr>
+
+            <tr>
+                <td>1</td>
+                <td>2021-08-31</td>
+                <td>2022-01-13</td>
+                <td>-13.94%</td>
+                <td>-12.33%</td>
+                <td>22.64%</td>
+                <td>0.0040</td>
+            </tr>
+
+            <tr>
+                <td>2</td>
+                <td>2022-11-25</td>
+                <td>2023-04-10</td>
+                <td>8.83%</td>
+                <td>7.79%</td>
+                <td>22.43%</td>
+                <td>0.0037</td>
+            </tr>
+
+            <tr>
+                <td>3</td>
+                <td>2023-06-07</td>
+                <td>2023-10-20</td>
+                <td>-3.11%</td>
+                <td>-2.72%</td>
+                <td>22.37%</td>
+                <td>0.0034</td>
+            </tr>
+
+            <tr>
+                <td>4</td>
+                <td>2023-12-15</td>
+                <td>2024-05-06</td>
+                <td>-3.47%</td>
+                <td>-3.04%</td>
+                <td>22.43%</td>
+                <td>0.0034</td>
+            </tr>
+
+            <tr>
+                <td>5</td>
+                <td>2024-06-17</td>
+                <td>2024-10-29</td>
+                <td>-7.37%</td>
+                <td>-6.42%</td>
+                <td>22.38%</td>
+                <td>0.0042</td>
+            </tr>
+
+            <tr>
+                <td>6</td>
+                <td>2025-03-12</td>
+                <td>2025-07-22</td>
+                <td>3.58%</td>
+                <td>3.17%</td>
+                <td>22.46%</td>
+                <td>0.0041</td>
+            </tr>
+
+        </table>
+
+        <h2>📁 下载文件</h2>
+        <table>
+            <tr><th>文件</th><th>说明</th></tr>
+            <tr><td><a href="rolling_backtest_report.csv">rolling_backtest_report.csv</a></td><td>6个周期详细数据（CSV格式）</td></tr>
+            <tr><td><a href="model_results/h_ecm_dcc_garch.csv">model_results/h_ecm_dcc_garch.csv</a></td><td>ECM-DCC-GARCH模型套保比例时序数据</td></tr>
+        </table>
+
+        <h2>💡 模型说明</h2>
+        <p><strong>ECM-DCC-GARCH</strong>结合了误差修正模型（ECM）和动态条件相关GARCH模型：</p>
+        <ul>
+            <li><strong>ECM部分</strong>：捕捉现货与期货的长期均衡关系（协整关系），通过误差修正项动态调整套保比例</li>
+            <li><strong>DCC-GARCH部分</strong>：捕捉现货与期货的时变相关性，进一步优化套保比例</li>
+            <li><strong>滚动窗口</strong>：使用120天滚动窗口估计时变协整参数，适应市场变化</li>
+        </ul>
+
+        <div style="text-align: center; margin-top: 50px; color: #7f8c8d;">
+            <p>报告生成时间: 2026-03-01 06:37:04</p>
+            <p>ECM-DCC-GARCH套保策略分析系统</p>
+        </div>
+    </div>
+</body>
+</html>
