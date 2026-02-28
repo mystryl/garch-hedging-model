@@ -91,7 +91,7 @@ def run_analysis(
     """
     print("\n" + "=" * 70)
     print(" " * 15 + "Basic GARCH Analyzer")
-    print(" " * 10 + "套保策略回测分析系统")
+    print(" " * 10 + "套保策略分析系统（滚动回测模式）")
     print("=" * 70)
 
     # 1. 准备配置
