@@ -7,15 +7,74 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import matplotlib.font_manager as fm
 import warnings
 warnings.filterwarnings('ignore')
 
-# 配置中文字体
+# 先设置绘图风格
+sns.set_style('whitegrid')
+
+# 配置中文字体（必须在 set_style 之后）
 from basic_garch_analyzer.font_config import setup_chinese_font
 setup_chinese_font()
 
-# 设置绘图风格
-sns.set_style('whitegrid')
+# 创建全局的中文字体属性对象（从字体文件路径直接加载）
+import os
+font_path = '/System/Library/Fonts/Hiragino Sans GB.ttc'
+if os.path.exists(font_path):
+    CHINESE_FONT = fm.FontProperties(fname=font_path)
+else:
+    CHINESE_FONT = None
+
+
+def apply_chinese_font(fig_or_ax):
+    """
+    应用中文字体到图表的所有文本元素
+
+    Parameters:
+    -----------
+    fig_or_ax : matplotlib.figure.Figure or matplotlib.axes.Axes or numpy.ndarray
+        图表对象
+    """
+    if CHINESE_FONT is None:
+        return
+
+    # 如果传入的是 numpy ndarray (axes 数组)
+    if hasattr(fig_or_ax, 'flatten') and not hasattr(fig_or_ax, 'axes'):
+        axes_list = fig_or_ax.flatten()
+        fig = axes_list[0].figure if len(axes_list) > 0 else None
+    # 如果传入的是 Axes
+    elif hasattr(fig_or_ax, 'figure'):
+        axes_list = [fig_or_ax]
+        fig = fig_or_ax.figure
+    # 如果传入的是 Figure
+    else:
+        fig = fig_or_ax
+        axes_list = fig.axes
+
+    # 应用字体到所有文本元素
+    for ax in axes_list:
+        # 标题和标签
+        if ax.get_title():
+            ax.set_title(ax.get_title(), fontproperties=CHINESE_FONT)
+        if ax.get_xlabel():
+            ax.set_xlabel(ax.get_xlabel(), fontproperties=CHINESE_FONT)
+        if ax.get_ylabel():
+            ax.set_ylabel(ax.get_ylabel(), fontproperties=CHINESE_FONT)
+
+        # 刻度标签
+        for label in ax.get_xticklabels() + ax.get_yticklabels():
+            label.set_fontproperties(CHINESE_FONT)
+
+        # 图例
+        legend = ax.get_legend()
+        if legend:
+            for text in legend.get_texts():
+                text.set_fontproperties(CHINESE_FONT)
+
+        # 注释文本
+        for text in ax.texts:
+            text.set_fontproperties(CHINESE_FONT)
 
 
 def plot_price_series(data, output_path):
@@ -37,19 +96,19 @@ def plot_price_series(data, output_path):
     ax1 = axes[0]
     ax1.plot(data['date'], data['spot'], label='现货价格', linewidth=1.5, alpha=0.8)
     ax1.plot(data['date'], data['futures'], label='期货价格', linewidth=1.5, alpha=0.8)
-    ax1.set_ylabel('价格', fontsize=11)
-    ax1.set_title('现货与期货价格走势', fontsize=12, fontweight='bold')
-    ax1.legend(loc='best')
+    ax1.set_ylabel('价格', fontsize=11, fontproperties=CHINESE_FONT)
+    ax1.set_title('现货与期货价格走势', fontsize=12, fontweight='bold', fontproperties=CHINESE_FONT)
+    ax1.legend(loc='best', prop=CHINESE_FONT)
     ax1.grid(True, alpha=0.3)
 
     # 基差走势
     ax2 = axes[1]
     ax2.plot(data['date'], data['spread'], label='基差', color='orange', linewidth=1.5, alpha=0.8)
     ax2.axhline(y=data['spread'].mean(), color='red', linestyle='--', alpha=0.7, label=f'基差均值: {data["spread"].mean():.2f}')
-    ax2.set_ylabel('基差', fontsize=11)
-    ax2.set_xlabel('日期', fontsize=11)
-    ax2.set_title('基差时变', fontsize=12, fontweight='bold')
-    ax2.legend(loc='best')
+    ax2.set_ylabel('基差', fontsize=11, fontproperties=CHINESE_FONT)
+    ax2.set_xlabel('日期', fontsize=11, fontproperties=CHINESE_FONT)
+    ax2.set_title('基差时变', fontsize=12, fontweight='bold', fontproperties=CHINESE_FONT)
+    ax2.legend(loc='best', prop=CHINESE_FONT)
     ax2.grid(True, alpha=0.3)
 
     plt.tight_layout()
@@ -107,6 +166,9 @@ def plot_returns(data, output_path):
     ax4.legend(loc='best')
     ax4.grid(True, alpha=0.3, axis='y')
 
+    # 应用中文字体
+    apply_chinese_font(axes)
+
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -150,6 +212,9 @@ def plot_hedge_ratio(data, results, output_path):
     ax2.legend(loc='best')
     ax2.grid(True, alpha=0.3, axis='y')
 
+    # 应用中文字体
+    apply_chinese_font(axes)
+
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -192,6 +257,9 @@ def plot_volatility(data, results, output_path):
     ax2.set_title('动态相关系数 (窗口=120天)', fontsize=12, fontweight='bold')
     ax2.legend(loc='best')
     ax2.grid(True, alpha=0.3)
+
+    # 应用中文字体到所有文本元素
+    apply_chinese_font(axes)
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
@@ -238,6 +306,9 @@ def plot_backtest_results(data, eval_results, output_path):
     ax.grid(True, alpha=0.3)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:.2f}'))
 
+    # 应用中文字体
+    apply_chinese_font(ax)
+
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -281,6 +352,9 @@ def plot_drawdown(data, eval_results, output_path):
     ax.legend(loc='best')
     ax.grid(True, alpha=0.3)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:.1%}'))
+
+    # 应用中文字体
+    apply_chinese_font(ax)
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
@@ -355,6 +429,9 @@ def plot_performance_metrics(eval_results, output_path):
     ax4.set_xticklabels(categories)
     ax4.legend(loc='best')
     ax4.grid(True, alpha=0.3, axis='y')
+
+    # 应用中文字体
+    apply_chinese_font(axes)
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
@@ -444,6 +521,12 @@ def plot_summary_table(eval_results, selected, model_params, output_path):
         elif i % 2 == 0:
             table[(i, 0)].set_facecolor('#f0f0f0')
             table[(i, 1)].set_facecolor('#f0f0f0')
+
+    # 应用中文字体到标题和表格
+    apply_chinese_font(ax)
+    # 表格中的文字也需要设置字体（使用 set_text_props）
+    for key, cell in table.get_celld().items():
+        cell.set_text_props(fontproperties=CHINESE_FONT)
 
     ax.set_title('Basic GARCH 套保策略回测报告汇总', fontsize=14, fontweight='bold', pad=20)
 

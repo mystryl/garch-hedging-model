@@ -11,11 +11,12 @@ from typing import Dict, Tuple
 import warnings
 warnings.filterwarnings('ignore')
 
-# 配置中文字体
+# 先设置绘图风格
+sns.set_style('whitegrid')
+
+# 然后配置中文字体（必须在 set_style 之后）
 from basic_garch_analyzer.font_config import setup_chinese_font
 setup_chinese_font()
-
-sns.set_style('whitegrid')
 
 # 导入现有模块的函数
 from basic_garch_analyzer.backtest_evaluator import (

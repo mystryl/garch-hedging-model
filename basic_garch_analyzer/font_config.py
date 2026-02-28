@@ -4,70 +4,85 @@
 """
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
+import os
+import warnings
 
 
 def setup_chinese_font():
     """
     自动检测并配置可用的中文字体
 
-    按优先级尝试以下字体：
-    1. macOS: Hiragino Sans GB, PingFang SC, STHeiti
-    2. Windows: Microsoft YaHei, SimHei
-    3. Linux: WenQuanYi Micro Hei, Noto Sans CJK
-    4. 通用: Arial Unicode MS
+    使用字体文件路径而不是字体名称，更可靠
 
     Returns:
     --------
     font_name : str
         实际使用的字体名称
     """
-    # 按平台和优先级排序的字体列表
-    font_candidates = [
-        # macOS 专用字体
-        'Hiragino Sans GB',
-        'PingFang SC',
-        'STHeiti',
-        'Heiti TC',
-        # Windows 专用字体
-        'Microsoft YaHei',
-        'SimHei',
-        # Linux 专用字体
-        'WenQuanYi Micro Hei',
-        'WenQuanYi Zen Hei',
-        'Noto Sans CJK SC',
-        'Noto Sans CJK TC',
-        # 通用字体
-        'Arial Unicode MS',
-        'DejaVu Sans',
+    # macOS 上的中文字体文件路径
+    font_paths = [
+        '/System/Library/Fonts/PingFang.ttc',  # PingFang SC
+        '/System/Library/Fonts/Hiragino Sans GB.ttc',
+        '/System/Library/Fonts/STHeiti Medium.ttc',
+        '/System/Library/Fonts/STHeiti Light.ttc',
     ]
 
-    # 获取系统所有可用字体（强制重建缓存）
-    try:
-        fm._rebuild()
-    except:
-        pass
+    # 尝试每个字体文件
+    for font_path in font_paths:
+        if os.path.exists(font_path):
+            try:
+                # 使用字体文件路径创建 FontProperties
+                font_prop = fm.FontProperties(fname=font_path)
+                font_name = font_prop.get_name()
+
+                # 设置为默认字体
+                plt.rcParams['font.family'] = font_name
+                plt.rcParams['font.sans-serif'] = [font_name]
+                plt.rcParams['axes.unicode_minus'] = False
+
+                # 验证是否可以渲染中文
+                with warnings.catch_warnings(record=True) as w:
+                    warnings.simplefilter("always")
+                    fig = plt.figure()
+                    ax = fig.add_subplot(111)
+                    ax.text(0.5, 0.5, '测试', fontproperties=font_prop)
+
+                    # 检查是否有字体相关的警告
+                    font_warnings = [warning for warning in w
+                                   if 'font' in str(warning.message).lower()
+                                   or 'glyph' in str(warning.message).lower()]
+
+                    plt.close(fig)
+
+                    if not font_warnings:
+                        print(f"✓ 已设置中文字体: {font_name}")
+                        print(f"  字体文件: {os.path.basename(font_path)}")
+                        return font_name
+            except Exception as e:
+                continue
+
+    # 如果直接路径失败，尝试按名称查找
+    print("尝试按名称查找中文字体...")
+    font_candidates = [
+        'PingFang SC',
+        'Hiragino Sans GB',
+        'STHeiti',
+        'Heiti TC',
+        'Arial Unicode MS',
+    ]
 
     available_fonts = [f.name for f in fm.fontManager.ttflist]
 
-    # 查找第一个可用的中文字体
     for font in font_candidates:
         if font in available_fonts:
-            # 直接设置字体，不追加到列表
+            plt.rcParams['font.family'] = 'sans-serif'
             plt.rcParams['font.sans-serif'] = [font]
             plt.rcParams['axes.unicode_minus'] = False
+            print(f"✓ 已设置中文字体(按名称): {font}")
+            return font
 
-            # 验证字体是否真的可以渲染中文
-            try:
-                test_prop = fm.FontProperties(family=font)
-                actual_font = test_prop.get_name()
-                print(f"✓ 已设置中文字体: {actual_font}")
-                return font
-            except:
-                continue
-
-    # 如果没有找到任何中文字体，使用默认设置
+    # 如果都失败了
     print("⚠️  警告: 未找到可用的中文字体，图表中的中文可能无法正常显示")
-    print(f"   可用字体数量: {len(available_fonts)}")
     return None
 
 
