@@ -5,8 +5,10 @@ GARCH模型套保分析Web平台
 """
 
 import os
+import zipfile
+import traceback
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file, abort
 from werkzeug.utils import secure_filename
 from datetime import datetime
 
@@ -16,6 +18,7 @@ from config import (
     OUTPUT_DIR, MODEL_CONFIG
 )
 from utils.data_processor import read_excel_sheets, preview_sheet, get_all_sheets_info
+from models import MODEL_RUNNERS
 
 app = Flask(__name__)
 app.config.update(
@@ -308,6 +311,172 @@ def recommend_sheet(sheets_info):
             return sheet['name']
 
     return None
+
+
+@app.route('/api/generate', methods=['POST'])
+def generate_report():
+    """
+    生成模型分析报告
+    """
+    data = request.get_json()
+
+    if not data:
+        return jsonify({'error': '请求数据为空'}), 400
+
+    # 提取参数
+    filepath = data.get('filepath')
+    sheet_name = data.get('sheet_name')
+    column_mapping = data.get('column_mapping')
+    date_range = data.get('date_range')
+    model_type = data.get('model_type')
+
+    # 参数验证
+    if not filepath:
+        return jsonify({'error': '缺少文件路径'}), 400
+    if not sheet_name:
+        return jsonify({'error': '缺少工作表名称'}), 400
+    if not column_mapping or not column_mapping.get('spot') or not column_mapping.get('future'):
+        return jsonify({'error': '缺少必要的列映射'}), 400
+    if not model_type:
+        return jsonify({'error': '未选择模型类型'}), 400
+    if model_type not in MODEL_RUNNERS:
+        return jsonify({'error': f'不支持的模型类型: {model_type}'}), 400
+
+    # 检查文件是否存在
+    if not os.path.exists(filepath):
+        return jsonify({'error': f'文件不存在: {filepath}'}), 404
+
+    try:
+        # 获取模型配置
+        model_config = MODEL_CONFIG.get(model_type, {})
+
+        # 调用模型运行器
+        print(f"\n{'='*60}")
+        print(f"开始生成报告: {model_type}")
+        print(f"文件: {filepath}")
+        print(f"工作表: {sheet_name}")
+        print(f"列映射: {column_mapping}")
+        print(f"{'='*60}\n")
+
+        model_runner = MODEL_RUNNERS[model_type]
+        result = model_runner(
+            data_path=filepath,
+            sheet_name=sheet_name,
+            column_mapping=column_mapping,
+            date_range=date_range,
+            output_dir=str(OUTPUT_DIR / 'web_reports'),
+            model_config=model_config
+        )
+
+        if not result.get('success'):
+            return jsonify({
+                'error': result.get('error', '模型运行失败')
+            }), 500
+
+        # 创建ZIP包（包含HTML报告和模型结果）
+        report_path = Path(result['report_path'])
+        output_dir = report_path.parent
+
+        # ZIP文件名
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        zip_filename = f"{model_type}_report_{timestamp}.zip"
+        zip_path = OUTPUT_DIR / 'web_reports' / zip_filename
+
+        # 创建ZIP文件
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            # 添加HTML报告
+            if report_path.exists():
+                zipf.write(report_path, report_path.name)
+
+            # 添加模型结果CSV（如果存在）
+            model_results_dir = output_dir / 'model_results'
+            if model_results_dir.exists():
+                for csv_file in model_results_dir.glob('*.csv'):
+                    zipf.write(csv_file, f"model_results/{csv_file.name}")
+
+            # 添加图表（如果存在）
+            figures_dir = output_dir / 'figures'
+            if figures_dir.exists():
+                for fig_file in figures_dir.glob('*.png'):
+                    zipf.write(fig_file, f"figures/{fig_file.name}")
+
+        # 返回结果
+        return jsonify({
+            'success': True,
+            'report_path': str(report_path.relative_to(OUTPUT_DIR)),
+            'download_url': f'/download/{zip_filename}',
+            'view_url': f'/report?path={report_path.relative_to(OUTPUT_DIR)}',
+            'summary': result.get('summary', {}),
+            'message': f'{MODEL_CONFIG[model_type]["name"]}模型分析完成'
+        })
+
+    except Exception as e:
+        error_msg = f'生成报告失败: {str(e)}\n{traceback.format_exc()}'
+        print(error_msg)
+        return jsonify({'error': error_msg}), 500
+
+
+@app.route('/download/<filename>')
+def download_file(filename):
+    """
+    下载生成的报告文件
+    """
+    try:
+        file_path = OUTPUT_DIR / 'web_reports' / filename
+
+        if not file_path.exists():
+            return jsonify({'error': f'文件不存在: {filename}'}), 404
+
+        return send_file(
+            file_path,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/zip'
+        )
+
+    except Exception as e:
+        return jsonify({'error': f'下载失败: {str(e)}'}), 500
+
+
+@app.route('/report')
+def view_report():
+    """
+    查看HTML报告
+    """
+    report_path = request.args.get('path')
+
+    if not report_path:
+        return '<h1>错误：缺少报告路径参数</h1>', 400
+
+    try:
+        file_path = OUTPUT_DIR / report_path
+
+        if not file_path.exists():
+            return f'<h1>错误：报告文件不存在</h1><p>路径: {report_path}</p>', 404
+
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        return content
+
+    except Exception as e:
+        return f'<h1>错误：无法读取报告</h1><p>{str(e)}</p>', 500
+
+
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    """处理文件过大错误"""
+    return jsonify({
+        'error': f'文件过大，请上传小于{MAX_CONTENT_LENGTH // (1024*1024)}MB的文件'
+    }), 413
+
+
+@app.errorhandler(500)
+def internal_server_error(error):
+    """处理服务器内部错误"""
+    return jsonify({
+        'error': '服务器内部错误，请稍后重试'
+    }), 500
 
 
 if __name__ == '__main__':

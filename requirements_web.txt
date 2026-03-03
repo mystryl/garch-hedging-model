@@ -1,4 +1,13 @@
+# GARCH Web Platform Dependencies
 Flask>=3.0.0
 Werkzeug>=3.0.0
 pandas>=2.0.0
+numpy>=1.24.0
 openpyxl>=3.1.0
+xlrd>=2.0.0
+arch>=7.0.0
+mgarch>=1.1.0
+statsmodels>=0.14.0
+scipy>=1.11.0
+matplotlib>=3.8.0
+seaborn>=0.13.0

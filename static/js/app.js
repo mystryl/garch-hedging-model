@@ -544,6 +544,248 @@ function showStep2() {
 }
 
 
+// 列映射确认按钮事件
+document.addEventListener('DOMContentLoaded', function() {
+    const confirmBtn = document.getElementById('confirmColumnsBtn');
+    if (confirmBtn) {
+        confirmBtn.addEventListener('click', function() {
+            // 显示模型选择区域
+            const modelSelection = document.getElementById('modelSelection');
+            if (modelSelection) {
+                modelSelection.style.display = 'block';
+                modelSelection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            showSuccess('列配置已确认，请选择模型并运行');
+        });
+    }
+
+    // 训练集比例滑块
+    const trainSizeInput = document.getElementById('trainSize');
+    const trainSizeValue = document.getElementById('trainSizeValue');
+    if (trainSizeInput && trainSizeValue) {
+        trainSizeInput.addEventListener('input', function() {
+            trainSizeValue.textContent = this.value + '%';
+        });
+    }
+
+    // 运行模型按钮
+    const runModelBtn = document.getElementById('runModelBtn');
+    if (runModelBtn) {
+        runModelBtn.addEventListener('click', generateReport);
+    }
+});
+
+
+/**
+ * 生成分析报告
+ */
+async function generateReport() {
+    if (!uploadedFile || !selectedSheet) {
+        showError('请先上传文件并选择工作表');
+        return;
+    }
+
+    // 获取选中的模型
+    const modelRadio = document.querySelector('input[name="model"]:checked');
+    if (!modelRadio) {
+        showError('请选择一个模型');
+        return;
+    }
+
+    const modelType = modelRadio.value;
+
+    // 获取列映射
+    const spotColumn = document.getElementById('spotColumn')?.value;
+    const futuresColumn = document.getElementById('futuresColumn')?.value;
+    const dateColumn = document.getElementById('dateColumn')?.value;
+
+    if (!spotColumn || !futuresColumn) {
+        showError('请配置现货和期货价格列');
+        return;
+    }
+
+    const columnMapping = {
+        spot: spotColumn,
+        future: futuresColumn,
+        date: dateColumn || null
+    };
+
+    // 显示进度
+    showProgress('正在运行模型分析...');
+
+    try {
+        const response = await fetch('/api/generate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                filepath: uploadedFile.path,
+                sheet_name: selectedSheet,
+                column_mapping: columnMapping,
+                date_range: null,
+                model_type: modelType
+            })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.error || '生成报告失败');
+        }
+
+        // 隐藏进度
+        hideProgress();
+
+        // 显示结果
+        displayResult(result);
+
+        showSuccess(`${result.message || '分析完成'}`);
+
+    } catch (error) {
+        hideProgress();
+        console.error('生成报告错误:', error);
+        showError(error.message || '生成报告失败，请重试');
+    }
+}
+
+
+/**
+ * 显示进度条
+ */
+function showProgress(message) {
+    const progressArea = document.getElementById('progressArea');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+
+    if (progressArea) {
+        progressArea.style.display = 'block';
+    }
+    if (progressText) {
+        progressText.textContent = message;
+    }
+    if (progressBar) {
+        progressBar.style.width = '0%';
+        // 模拟进度动画
+        let progress = 0;
+        const interval = setInterval(() => {
+            progress += Math.random() * 10;
+            if (progress > 90) progress = 90;
+            progressBar.style.width = progress + '%';
+        }, 500);
+
+        // 保存interval ID以便清除
+        progressArea.dataset.intervalId = interval;
+    }
+}
+
+
+/**
+ * 隐藏进度条
+ */
+function hideProgress() {
+    const progressArea = document.getElementById('progressArea');
+    const progressBar = document.getElementById('progressBar');
+
+    if (progressArea) {
+        // 清除进度动画
+        if (progressArea.dataset.intervalId) {
+            clearInterval(parseInt(progressArea.dataset.intervalId));
+        }
+        progressArea.style.display = 'none';
+    }
+    if (progressBar) {
+        progressBar.style.width = '100%';
+    }
+}
+
+
+/**
+ * 显示分析结果
+ */
+function displayResult(result) {
+    const resultsSection = document.getElementById('resultsSection');
+    const resultsContent = document.getElementById('resultsContent');
+
+    if (!resultsSection || !resultsContent) {
+        console.error('结果区域未找到');
+        return;
+    }
+
+    const summary = result.summary || {};
+
+    // 构建结果HTML
+    let html = `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px;">
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 14px; opacity: 0.9;">套保比例均值</div>
+                <div style="font-size: 24px; font-weight: bold;">${(summary.hedge_ratio_mean || 0).toFixed(4)}</div>
+            </div>
+            <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 20px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 14px; opacity: 0.9;">方差降低</div>
+                <div style="font-size: 24px; font-weight: bold;">${((summary.variance_reduction || 0) * 100).toFixed(2)}%</div>
+            </div>
+            <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 20px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 14px; opacity: 0.9;">Ederington有效性</div>
+                <div style="font-size: 24px; font-weight: bold;">${(summary.ederington || 0).toFixed(4)}</div>
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap;">
+            <a href="${result.view_url}" target="_blank" class="btn" style="background-color: #3498db; color: white; text-decoration: none; padding: 12px 24px; border-radius: 4px; display: inline-block;">
+                📊 查看HTML报告
+            </a>
+            <a href="${result.download_url}" class="btn" style="background-color: #2ecc71; color: white; text-decoration: none; padding: 12px 24px; border-radius: 4px; display: inline-block;">
+                📥 下载ZIP包
+            </a>
+            <button onclick="resetAnalysis()" class="btn" style="background-color: #e74c3c; color: white; padding: 12px 24px; border-radius: 4px; border: none; cursor: pointer;">
+                🔄 重新分析
+            </button>
+        </div>
+    `;
+
+    // 添加额外的模型特定信息
+    if (summary.model_name) {
+        html += `
+            <div style="margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 8px; border-left: 4px solid #3498db;">
+                <h3 style="margin-top: 0; color: #2c3e50;">模型信息</h3>
+                <p><strong>模型类型：</strong>${summary.model_name}</p>
+                <p><strong>模型参数：</strong>${summary.model_params || 'N/A'}</p>
+                ${summary.error_correction_coeff ? `<p><strong>误差修正系数：</strong>${summary.error_correction_coeff.toFixed(6)}</p>` : ''}
+                ${summary.cointegration_coeff ? `<p><strong>协整系数：</strong>${summary.cointegration_coeff.toFixed(4)}</p>` : ''}
+                ${summary.correlation_mean ? `<p><strong>动态相关系数均值：</strong>${summary.correlation_mean.toFixed(4)}</p>` : ''}
+            </div>
+        `;
+    }
+
+    resultsContent.innerHTML = html;
+    resultsSection.style.display = 'block';
+    resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    console.log('分析结果已显示:', result);
+}
+
+
+/**
+ * 重置分析
+ */
+function resetAnalysis() {
+    // 隐藏结果区域
+    const resultsSection = document.getElementById('resultsSection');
+    if (resultsSection) {
+        resultsSection.style.display = 'none';
+    }
+
+    // 滚动回模型选择区域
+    const modelSelection = document.getElementById('modelSelection');
+    if (modelSelection) {
+        modelSelection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    showInfo('已重置，可以重新选择模型运行');
+}
+
+
 // 导出全局函数供其他模块使用
 window.GARCHApp = {
     uploadedFile,
@@ -551,5 +793,7 @@ window.GARCHApp = {
     columnMapping,
     showError,
     showSuccess,
-    showInfo
+    showInfo,
+    generateReport,
+    displayResult
 };
