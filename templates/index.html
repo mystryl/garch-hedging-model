@@ -1,0 +1,321 @@
+{% extends "base.html" %}
+
+{% block title %}GARCH模型套保分析平台 - 数据分析{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>步骤1: 上传数据文件</h2>
+    <div class="upload-area" id="uploadArea">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+        <p>拖拽Excel文件到此处，或点击选择文件</p>
+        <p style="font-size: 12px; color: #7f8c8d;">支持 .xlsx, .xls 格式，最大50MB</p>
+        <input type="file" id="fileInput" accept=".xlsx,.xls" style="display: none;">
+        <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">选择文件</button>
+    </div>
+    <div id="fileInfo" style="display: none; margin-top: 20px;">
+        <p><strong>已选择文件:</strong> <span id="fileName"></span></p>
+        <p><strong>文件大小:</strong> <span id="fileSize"></span></p>
+        <button class="btn btn-success" id="uploadBtn">上传文件</button>
+    </div>
+</div>
+
+<div class="card" id="sheetSelection" style="display: none;">
+    <h2>步骤2: 选择工作表</h2>
+    <div class="form-group">
+        <label>选择包含数据的工作表:</label>
+        <select id="sheetSelect" class="form-control">
+            <option value="">-- 请选择工作表 --</option>
+        </select>
+    </div>
+    <div class="form-group">
+        <label>数据预览 (前5行):</label>
+        <div id="dataPreview" style="max-height: 300px; overflow: auto; border: 1px solid #ddd; padding: 10px;">
+            <p style="color: #7f8c8d;">请先选择工作表</p>
+        </div>
+    </div>
+</div>
+
+<div class="card" id="columnMapping" style="display: none;">
+    <h2>步骤3: 配置数据列</h2>
+    <div class="form-group">
+        <label for="spotColumn">现货价格列:</label>
+        <select id="spotColumn" class="form-control">
+            <option value="">-- 请选择 --</option>
+        </select>
+    </div>
+    <div class="form-group">
+        <label for="futuresColumn">期货价格列:</label>
+        <select id="futuresColumn" class="form-control">
+            <option value="">-- 请选择 --</option>
+        </select>
+    </div>
+    <div class="form-group">
+        <label for="dateColumn">日期列 (可选):</label>
+        <select id="dateColumn" class="form-control">
+            <option value="">-- 不使用日期 --</option>
+        </select>
+    </div>
+    <div class="form-group">
+        <label for="trainSize">训练集比例:</label>
+        <input type="range" id="trainSize" min="50" max="90" value="70" class="form-control" style="width: 100%;">
+        <div style="display: flex; justify-content: space-between; font-size: 12px; color: #7f8c8d;">
+            <span>50%</span>
+            <span id="trainSizeValue">70%</span>
+            <span>90%</span>
+        </div>
+    </div>
+    <button class="btn btn-primary" id="confirmColumnsBtn" disabled>确认配置</button>
+</div>
+
+<div class="card" id="modelSelection" style="display: none;">
+    <h2>步骤4: 选择模型并运行</h2>
+    <div class="form-group">
+        <label>选择GARCH模型:</label>
+        <div class="radio-group">
+            <label class="radio-option">
+                <input type="radio" name="model" value="basic_garch" checked>
+                <div>
+                    <strong>Basic GARCH</strong>
+                    <p style="font-size: 12px; color: #7f8c8d; margin: 5px 0;">基础GARCH模型，快速计算</p>
+                </div>
+            </label>
+            <label class="radio-option">
+                <input type="radio" name="model" value="dcc_garch">
+                <div>
+                    <strong>DCC-GARCH</strong>
+                    <p style="font-size: 12px; color: #7f8c8d; margin: 5px 0;">动态条件相关GARCH，捕捉时变相关性</p>
+                </div>
+            </label>
+            <label class="radio-option">
+                <input type="radio" name="model" value="ecm_garch">
+                <div>
+                    <strong>ECM-GARCH</strong>
+                    <p style="font-size: 12px; color: #7f8c8d; margin: 5px 0;">误差修正GARCH，考虑协整关系</p>
+                </div>
+            </label>
+        </div>
+    </div>
+    <button class="btn btn-success" id="runModelBtn" style="width: 100%; font-size: 18px; padding: 15px;">
+        运行模型分析
+    </button>
+    <div id="progressArea" style="display: none; margin-top: 20px;">
+        <div class="progress">
+            <div class="progress-bar" id="progressBar" style="width: 0%;"></div>
+        </div>
+        <p id="progressText" style="text-align: center; margin-top: 10px; color: #7f8c8d;">准备中...</p>
+    </div>
+</div>
+
+<div class="card" id="resultsSection" style="display: none;">
+    <h2>步骤5: 分析结果</h2>
+    <div id="resultsContent">
+        <p style="text-align: center; color: #7f8c8d;">等待结果...</p>
+    </div>
+</div>
+
+<style>
+.upload-area {
+    border: 2px dashed #3498db;
+    border-radius: 8px;
+    padding: 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.upload-area:hover {
+    border-color: #2980b9;
+    background-color: #ecf0f1;
+}
+
+.upload-area.dragover {
+    border-color: #2980b9;
+    background-color: #d5dbdb;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+.form-control {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.radio-option {
+    display: flex;
+    align-items: flex-start;
+    padding: 15px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.radio-option:hover {
+    background-color: #ecf0f1;
+}
+
+.radio-option input[type="radio"] {
+    margin-right: 15px;
+    margin-top: 5px;
+}
+
+.radio-option div {
+    flex: 1;
+}
+
+.progress {
+    width: 100%;
+    height: 30px;
+    background-color: #ecf0f1;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    background-color: #3498db;
+    transition: width 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+}
+
+.card {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 30px;
+    margin-bottom: 30px;
+}
+
+.card h2 {
+    color: #2c3e50;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #3498db;
+}
+
+.btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s;
+}
+
+.btn-primary {
+    background-color: #3498db;
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: #2980b9;
+}
+
+.btn-success {
+    background-color: #27ae60;
+    color: white;
+}
+
+.btn-success:hover {
+    background-color: #229954;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+h1 {
+    text-align: center;
+    color: #2c3e50;
+    margin-bottom: 40px;
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 文件上传相关
+const uploadArea = document.getElementById('uploadArea');
+const fileInput = document.getElementById('fileInput');
+const fileInfo = document.getElementById('fileInfo');
+const uploadBtn = document.getElementById('uploadBtn');
+
+// 拖拽上传
+uploadArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    uploadArea.classList.add('dragover');
+});
+
+uploadArea.addEventListener('dragleave', () => {
+    uploadArea.classList.remove('dragover');
+});
+
+uploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        handleFileSelect(files[0]);
+    }
+});
+
+// 文件选择
+fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+        handleFileSelect(e.target.files[0]);
+    }
+});
+
+function handleFileSelect(file) {
+    if (!file.name.match(/\.(xlsx|xls)$/i)) {
+        alert('请选择Excel文件 (.xlsx 或 .xls)');
+        return;
+    }
+
+    document.getElementById('fileName').textContent = file.name;
+    document.getElementById('fileSize').textContent = (file.size / 1024 / 1024).toFixed(2) + ' MB';
+    fileInfo.style.display = 'block';
+}
+
+// 训练集比例滑块
+document.getElementById('trainSize').addEventListener('input', (e) => {
+    document.getElementById('trainSizeValue').textContent = e.target.value + '%';
+});
+
+console.log('GARCH套保分析平台已加载');
+console.log('等待用户上传数据文件...');
+</script>
+{% endblock %}

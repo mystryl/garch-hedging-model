@@ -1,18 +1,23 @@
-{# GARCH Web Platform - Base Template #}
-{# This template will be expanded in later tasks #}
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}GARCH 套保模型分析平台{% endblock %}</title>
+    <title>{% block title %}GARCH模型套保分析平台{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    {% block extra_css %}{% endblock %}
 </head>
 <body>
-    {% block content %}{% endblock %}
+    <div class="container">
+        <h1>GARCH模型套保分析平台</h1>
+
+        {% block content %}{% endblock %}
+
+        <footer style="text-align: center; margin-top: 50px; color: #7f8c8d; font-size: 14px;">
+            <p>GARCH套保策略分析系统 v1.0</p>
+        </footer>
+    </div>
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
-    {% block extra_js %}{% endblock %}
+    {% block scripts %}{% endblock %}
 </body>
 </html>
