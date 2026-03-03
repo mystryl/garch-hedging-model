@@ -1,6 +1,13 @@
 """
 模型2: ECM-GARCH套保模型
 考虑现货与期货的长期均衡关系（误差修正模型）
+
+实现说明:
+- 使用对数收益率（金融理论标准做法）
+- 协整检验基于对数价格
+- ECM方程：r_s(t) = α + h·r_f(t) + γ·ect(t-1) + ε(t)
+- GARCH模型对ECM残差建模
+- 最小方差套保比率：h_t = Cov(r_s, r_f) / Var(r_f)
 """
 
 import pandas as pd
@@ -19,6 +26,10 @@ def fit_ecm_garch(data, p=1, q=1, output_dir='outputs/model_results',
 
     改进说明:
     ---------
+    - ✅ 使用对数收益率而非价格差分（符合金融理论标准）
+    - 协整检验基于对数价格（更稳定）
+    - ECM方程使用对数收益率：r_s(t) = α + h·r_f(t) + γ·ect(t-1) + ε(t)
+    - 误差修正项基于对数价格偏差
     - 实现真正的ECM-GARCH耦合(方差方程包含ECT外生变量)
     - 强制启用税点调整(现货含税而期货不含税)
     - 添加套保有效性评估(Ederington指标)
@@ -27,6 +38,8 @@ def fit_ecm_garch(data, p=1, q=1, output_dir='outputs/model_results',
     -----------
     data : pd.DataFrame
         包含 spot, futures, r_s, r_f 的数据
+        - r_s: 现货对数收益率
+        - r_f: 期货对数收益率
     p : int
         GARCH模型的p阶数
     q : int
@@ -60,15 +73,19 @@ def fit_ecm_garch(data, p=1, q=1, output_dir='outputs/model_results',
     spot = data['spot'].values
     futures = data['futures'].values
 
-    # 使用价格差分(而非对数收益率)以统一量纲
-    # ΔS(t) = S(t) - S(t-1), ΔF(t) = F(t) - F(t-1)
-    delta_s = np.diff(spot)  # 长度为T-1
-    delta_f = np.diff(futures)  # 长度为T-1
+    # ✅ 修正：使用对数收益率（标准金融做法）
+    # r_s(t) = ln(S(t) / S(t-1)), r_f(t) = ln(F(t) / F(t-1))
+    # 对数收益率是金融时间序列分析的标准，量纲统一（百分比）
+    log_spot = np.log(spot)  # 对数价格
+    log_futures = np.log(futures)  # 对数价格
+    r_spot = data['r_s'].values  # 使用预处理好的对数收益率
+    r_futures = data['r_f'].values  # 使用预处理好的对数收益率
 
     T = len(spot)
     print(f"\n样本量: {T}")
-    print(f"价格差分样本量: {len(delta_s)}")
+    print(f"对数收益率样本量: {len(r_spot)}")
     print(f"协整估计窗口: {coint_window}天")
+    print(f"  修正说明: 使用对数收益率替代价格差分，符合金融理论标准")
 
     # ===== 修正1.1: 样本量边界检查 =====
     min_required_samples = coint_window + 2  # 至少需要coint_window+1个用于协整,再加1个用于ECM
@@ -85,20 +102,24 @@ def fit_ecm_garch(data, p=1, q=1, output_dir='outputs/model_results',
     # 步骤1: 滚动窗口协整检验
     print("\n[1/5] 滚动窗口协整检验...")
 
-    # ===== 修正3: 协整检验使用正确的趋势项 =====
-    # 理论依据: 现货-期货的长期均衡关系通常是线性的，不包含时间趋势项
-    # 标准做法: trend='c' (仅常数项), 而非 trend='ct' (常数项+时间趋势项)
+    # ===== 修正3: 协整检验使用正确的趋势项和对数价格 =====
+    # 理论依据:
+    #   1. 现货-期货的长期均衡关系通常是线性的，不包含时间趋势项
+    #   2. 协整检验应基于对数价格，而非原始价格（金融理论标准）
+    # 标准做法:
+    #   - 使用对数价格进行协整检验
+    #   - trend='c' (仅常数项), 而非 trend='ct' (常数项+时间趋势项)
     try:
-        # 使用trend='c'进行协整检验
-        score, pvalue, _ = coint(spot, futures, trend='c', autolag='BIC')
-        print(f"  全样本协整检验(trend='c'): 统计量={score:.4f}, p值={pvalue:.6f}")
+        # ✅ 使用对数价格进行协整检验
+        score, pvalue, _ = coint(log_spot, log_futures, trend='c', autolag='BIC')
+        print(f"  全样本协整检验(对数价格, trend='c'): 统计量={score:.4f}, p值={pvalue:.6f}")
         if pvalue < 0.05:
-            print("  ✓ 全样本在5%水平下存在协整关系")
+            print("  ✓ 全样本在5%水平下存在协整关系（对数价格）")
         else:
-            print("  ⚠ 全样本在5%水平下可能不存在协整关系")
+            print("  ⚠ 全样本在5%水平下可能不存在协整关系（对数价格）")
 
         # 额外说明: 如果需要，可以对比不同趋势项
-        print(f"  注: 使用trend='c'(仅常数项)而非trend='ct'(含时间趋势),符合金融理论")
+        print(f"  注: 使用对数价格+trend='c'(仅常数项),符合金融理论标准")
     except Exception as e:
         print(f"  ⚠ 全样本协整检验失败: {e}")
 
@@ -112,22 +133,25 @@ def fit_ecm_garch(data, p=1, q=1, output_dir='outputs/model_results',
 
     # 对每个时间点t，使用过去coint_window天的数据估计均衡
     # 修正时序逻辑: 使用t-1时刻及之前的数据估计参数,避免未来信息泄露
+    # ✅ 修正: 使用对数价格进行协整估计
     valid_count = 0
     for t in range(coint_window + 1, T):  # 从coint_window+1开始
         # 使用t-coint_window-1到t-1的数据(不包含t)
-        spot_window = spot[t-coint_window-1:t-1]
-        futures_window = futures[t-coint_window-1:t-1]
+        # ✅ 使用对数价格窗口
+        log_spot_window = log_spot[t-coint_window-1:t-1]
+        log_futures_window = log_futures[t-coint_window-1:t-1]
 
-        # 估计协整向量
-        X = sm.add_constant(futures_window)
-        ecm_model = sm.OLS(spot_window, X).fit()
+        # 估计协整向量（基于对数价格）
+        X = sm.add_constant(log_futures_window)
+        ecm_model = sm.OLS(log_spot_window, X).fit()
 
         beta0_series[t] = ecm_model.params[0]
         beta1_series[t] = ecm_model.params[1]
         r_squared_series[t] = ecm_model.rsquared
 
         # 计算时刻t的误差修正项(参数基于历史数据)
-        ect[t] = spot[t] - (ecm_model.params[0] + ecm_model.params[1] * futures[t])
+        # ✅ ect基于对数价格的偏差（量纲：对数价格）
+        ect[t] = log_spot[t] - (ecm_model.params[0] + ecm_model.params[1] * log_futures[t])
         valid_count += 1
 
     print(f"  ✓ 有效估计点数: {valid_count} (从第{coint_window+1}天开始,避免未来信息泄露)")
@@ -165,25 +189,30 @@ def fit_ecm_garch(data, p=1, q=1, output_dir='outputs/model_results',
     print("\n[3/5] 估计误差修正模型...")
 
     # ===== 修正2: ECT对齐逻辑清晰化 =====
-    # ECM方程: ΔS(t) = α + h·ΔF(t) + γ·ect(t-1) + ε(t)
+    # ✅ ECM方程使用对数收益率（标准金融公式）:
+    #   r_s(t) = α + h·r_f(t) + γ·ect(t-1) + ε(t)
+    #
+    # 重要说明：数据文件中的 r_s, r_f 包含第一个NaN（索引0）
+    #   - r_spot, r_futures 长度为 T (索引0是NaN，索引1对应原始t=1)
     #
     # 时序对应关系:
-    #   时间索引:   0    1    2   ...  T-2  T-1   T
-    #   spot:      S0   S1   S2  ... ST-2 ST-1  ST
-    #   futures:   F0   F1   F2  ... FT-2 FT-1  FT
-    #   ΔS:        -   ΔS1  ΔS2 ... ΔST-2 ΔST-1  -   (长度T-1)
-    #   ΔF:        -   ΔF1  ΔF2 ... ΔFT-2 ΔFT-1  -   (长度T-1)
-    #   ect:       ect0 ect1 ect2 ... ectT-2 ectT-1 ectT (长度T)
+    #   原始索引:   0    1    2    3   ...  T-2  T-1   T
+    #   spot:      S0   S1   S2   S3  ... ST-2 ST-1  ST
+    #   futures:   F0   F1   F2   F3  ... FT-2 FT-1  FT
+    #   log_spot:  lnS0 lnS1 lnS2 lnS3 ... lnST-2 lnST-1 lnST
+    #   ect:       ect0 ect1 ect2 ect3 ... ectT-2 ectT-1 ectT (长度T)
+    #   r_spot:    NaN  rs1  rs2  rs3  ... rsT-2 rsT-1  NaN   (长度T,索引0和T-1是NaN)
+    #   r_futures: NaN  rf1  rf2  rf3  ... rfT-2 rfT-1  NaN   (长度T,索引0和T-1是NaN)
     #
-    # ECM回归需要:
-    #   被解释变量: ΔS(t) for t=2,...,T    → delta_s[1:]
-    #   解释变量1:  ΔF(t) for t=2,...,T    → delta_f[1:]
-    #   解释变量2:  ect(t-1) for t=2,...,T → ect[1:-1]
+    # ECM回归需要（使用t时刻的收益率和t-1时刻的ect）:
+    #   被解释变量: r_spot(t) for t=2,...,T-1    → r_spot[2:]     (索引2到T-1)
+    #   解释变量1:  r_futures(t) for t=2,...,T-1 → r_futures[2:]  (索引2到T-1)
+    #   解释变量2:  ect(t-1) for t=2,...,T-1    → ect[1:-1]      (索引1到T-2)
     #
-    # 因此:
-    delta_s_ecm = delta_s[1:]      # ΔS(2), ΔS(3), ..., ΔS(T)    [长度T-2]
-    delta_f_ecm = delta_f[1:]      # ΔF(2), ΔF(3), ..., ΔF(T)    [长度T-2]
-    ect_lagged = ect[1:-1]         # ect(1), ect(2), ..., ect(T-1) [长度T-2]
+    # 对齐后：三个数组长度都是 T-2
+    r_spot_ecm = r_spot[2:]       # rs2, rs3, ..., rs(T-1)  [长度T-2]
+    r_futures_ecm = r_futures[2:] # rf2, rf3, ..., rf(T-1)  [长度T-2]
+    ect_lagged = ect[1:-1]        # ect1, ect2, ..., ect(T-2) [长度T-2]
 
     # 只使用有效数据(ect不为NaN)
     valid_mask = ~np.isnan(ect_lagged)
@@ -195,35 +224,36 @@ def fit_ecm_garch(data, p=1, q=1, output_dir='outputs/model_results',
             f"   建议: 检查前{coint_window+1}个数据点是否有效"
         )
 
-    delta_s_valid = delta_s_ecm[valid_mask]
-    delta_f_valid = delta_f_ecm[valid_mask]
+    r_spot_valid = r_spot_ecm[valid_mask]
+    r_futures_valid = r_futures_ecm[valid_mask]
     ect_lagged_valid = ect_lagged[valid_mask]
 
-    print(f"  有效ECM观测点数: {len(delta_s_valid)} (需要滞后一期)")
+    print(f"  有效ECM观测点数: {len(r_spot_valid)} (需要滞后一期)")
 
     # 构建ECM回归矩阵(变量命名清晰化)
     X_ecm = pd.DataFrame({
         'const': 1.0,
-        'delta_f': delta_f_valid,      # 期货价格差分
-        'ect_lagged': ect_lagged_valid # 滞后一期的误差修正项
+        'r_f': r_futures_valid,         # 期货对数收益率
+        'ect_lagged': ect_lagged_valid  # 滞后一期的误差修正项(基于对数价格)
     })
 
-    # OLS回归(被解释变量是价格差分,单位: 元)
-    ecm_result = sm.OLS(delta_s_valid, X_ecm).fit()
+    # ✅ OLS回归(使用对数收益率,量纲统一为百分比)
+    ecm_result = sm.OLS(r_spot_valid, X_ecm).fit()
 
     alpha = ecm_result.params['const']
-    h_ecm = ecm_result.params['delta_f']
-    gamma = ecm_result.params['ect_lagged']  # 修复: 使用正确的列名
+    h_ecm = ecm_result.params['r_f']
+    gamma = ecm_result.params['ect_lagged']
 
     print(f"\nECM方程估计结果:")
-    print(f"  ΔS_t = {alpha:.6f} + {h_ecm:.4f}·ΔF_t + {gamma:.6f}·ect_{{t-1}} + ε_t")
+    print(f"  r_s(t) = {alpha:.6f} + {h_ecm:.4f}·r_f(t) + {gamma:.6f}·ect_{{t-1}} + ε_t")
+    print(f"  注: r_s, r_f为对数收益率，ect基于对数价格偏差")
     print(f"  标准误差:")
     print(f"    α: {ecm_result.bse['const']:.6f}")
-    print(f"    h: {ecm_result.bse['delta_f']:.6f}")
-    print(f"    γ: {ecm_result.bse['ect_lagged']:.6f}")  # 修复: 使用正确的列名
+    print(f"    h: {ecm_result.bse['r_f']:.6f}")
+    print(f"    γ: {ecm_result.bse['ect_lagged']:.6f}")
     print(f"  t统计量:")
-    print(f"    h: {ecm_result.tvalues['delta_f']:.4f}")
-    print(f"    γ: {ecm_result.tvalues['ect_lagged']:.4f}")  # 修复: 使用正确的列名
+    print(f"    h: {ecm_result.tvalues['r_f']:.4f}")
+    print(f"    γ: {ecm_result.tvalues['ect_lagged']:.4f}")
     print(f"  R² = {ecm_result.rsquared:.4f}")
     print(f"  Adjusted R² = {ecm_result.rsquared_adj:.4f}")
 
@@ -276,12 +306,14 @@ def fit_ecm_garch(data, p=1, q=1, output_dir='outputs/model_results',
     print("\n[4/6] ECM-GARCH耦合建模...")
 
     # 准备ECM残差和ECT数据
+    # ✅ ecm_residuals是对数收益率的残差（量纲：百分比）
     ecm_residuals = ecm_result.resid
     ect_lagged_valid = ect_lagged_valid
 
     if coupling_method == 'ect-garch':
         # 方案A: ECT-GARCH(对ECM残差建模GARCH,用ECT动态调整套保比例)
         print("  使用ECT-GARCH模型(GARCH建模残差+ECT动态调整)...")
+        print("  注: GARCH建模对象为对数收益率的ECM残差")
 
         # 拟合GARCH(1,1)模型对ECM残差
         from arch import arch_model
@@ -387,22 +419,24 @@ def fit_ecm_garch(data, p=1, q=1, output_dir='outputs/model_results',
     print("\n[6/6] 套保有效性评估...")
 
     # 数据对齐说明:
-    # - h_actual 长度为 T = 2891
-    # - valid_mask 长度为 T-2 = 2889 (对应 delta_s_ecm = delta_s[1:])
-    # - delta_s_valid, delta_f_valid 基于 valid_mask 提取,长度 = sum(valid_mask)
-    # - h_actual[2:] 长度为 T-2 = 2889
+    # - h_actual 长度为 T
+    # - valid_mask 长度为 T-2 (对应 r_spot_ecm = r_spot[2:])
+    # - r_spot_valid, r_futures_valid 基于 valid_mask 提取,长度 = sum(valid_mask)
+    # - h_actual[2:] 长度为 T-2, 索引2到T-1
+    # - valid_mask 对应 r_spot[2:]，即原始索引2到T-1
     # - 需要从 h_actual[2:] 中提取 valid_mask 为 True 的位置
 
     # 对齐 h_actual 到有效样本
+    # h_actual[2:] 对应原始索引2,...,T-1
+    # valid_mask 对应 r_spot[2:]，也是原始索引2,...,T-1
     h_aligned = h_actual[2:][valid_mask]
 
-    # 计算未套保收益率
-    # R_u = ΔS / S_{t-1}
-    returns_unhedged = delta_s_valid / spot[1:-1][valid_mask]
+    # ✅ 使用对数收益率计算套保效果（标准做法）
+    # 未套保收益率: r_u(t) = r_s(t)
+    returns_unhedged = r_spot_valid
 
-    # 计算套保后组合收益率
-    # R_h = (ΔS - h·ΔF) / S_{t-1}
-    returns_hedged = (delta_s_valid - h_aligned * delta_f_valid) / spot[1:-1][valid_mask]
+    # 套保后组合收益率: r_h(t) = r_s(t) - h·r_f(t)
+    returns_hedged = r_spot_valid - h_aligned * r_futures_valid
 
     # 计算方差
     var_unhedged = returns_unhedged.var()
@@ -416,6 +450,7 @@ def fit_ecm_garch(data, p=1, q=1, output_dir='outputs/model_results',
     print(f"    Var(R_u) = {var_unhedged:.6f}")
     print(f"    Var(R_h) = {var_hedged:.6f}")
     print(f"    HE = {hedging_effectiveness:.4f} ({hedging_effectiveness*100:.2f}%)")
+    print(f"  注: 基于对数收益率计算")
 
     # 有效性评估
     if hedging_effectiveness > 0.9:
@@ -444,8 +479,15 @@ def fit_ecm_garch(data, p=1, q=1, output_dir='outputs/model_results',
 
     # 创建输出DataFrame(对齐日期)
     # 注意: h_actual有T个观测值,但前2个是NaN
+    # 处理date列：如果date是索引，则从索引获取；否则从列获取
+    if 'date' in data.columns:
+        dates = data['date'].values
+    else:
+        # date可能是索引
+        dates = data.index.values
+
     output_df = pd.DataFrame({
-        'date': data['date'].values,
+        'date': dates,
         'h_theoretical': h_t,
         'h_actual': h_actual,
         'h_ecm_base': h_ecm,

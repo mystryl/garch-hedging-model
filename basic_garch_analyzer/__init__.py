@@ -111,13 +111,16 @@ def run_analysis(
 
     # 2. 加载和预处理数据
     print("\n" + "=" * 70)
+    # 计算最小数据量要求
+    min_required = max(config.window_days * 2, config.corr_window)
     data, selected = load_and_preprocess(
         file_path=excel_path,
         date_col=date_col,
         spot_col=spot_col,
         futures_col=futures_col,
         output_file=None,
-        interactive=interactive
+        interactive=interactive,
+        min_required=min_required
     )
 
     # 3. 拟合 GARCH 模型

@@ -184,7 +184,7 @@ def select_columns_auto(df, available_columns, date_col=None, spot_col=None, fut
     return selected
 
 
-def preprocess_data(df, selected, output_file=None):
+def preprocess_data(df, selected, output_file=None, min_required=120):
     """
     预处理数据：清洗、计算收益率、基差
 
@@ -196,6 +196,8 @@ def preprocess_data(df, selected, output_file=None):
         选择的列名
     output_file : str or None
         输出文件路径
+    min_required : int
+        最小数据量要求
 
     Returns:
     --------
@@ -258,7 +260,6 @@ def preprocess_data(df, selected, output_file=None):
         print(f"\n✓ 已保存预处理数据: {output_file}")
 
     # 数据量验证
-    min_required = 120  # 至少120天数据
     if len(data) < min_required:
         raise InsufficientDataError(
             f"数据量不足: 需要 >= {min_required} 天, 实际 {len(data)} 天"
@@ -268,7 +269,7 @@ def preprocess_data(df, selected, output_file=None):
 
 
 def load_and_preprocess(file_path, date_col=None, spot_col=None, futures_col=None,
-                        output_file=None, interactive=False):
+                        output_file=None, interactive=False, min_required=120):
     """
     完整的数据加载和预处理流程
 
@@ -286,6 +287,8 @@ def load_and_preprocess(file_path, date_col=None, spot_col=None, futures_col=Non
         输出文件路径
     interactive : bool
         是否交互式选择列名
+    min_required : int
+        最小数据量要求
 
     Returns:
     --------
@@ -304,6 +307,6 @@ def load_and_preprocess(file_path, date_col=None, spot_col=None, futures_col=Non
         selected = select_columns_auto(df, available_columns, date_col, spot_col, futures_col)
 
     # 预处理
-    data = preprocess_data(df, selected, output_file)
+    data = preprocess_data(df, selected, output_file, min_required)
 
     return data, selected
