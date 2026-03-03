@@ -7,7 +7,7 @@ BASE_DIR = Path(__file__).parent
 SECRET_KEY = os.environ.get('SECRET_KEY', 'garch-platform-dev-key')
 DEBUG = True
 HOST = '0.0.0.0'
-PORT = 5000
+PORT = 5001  # Changed from 5000 to avoid macOS AirPlay Receiver conflict
 
 # 文件上传配置
 UPLOAD_FOLDER = BASE_DIR / 'outputs' / 'uploaded'

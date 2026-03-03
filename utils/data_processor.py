@@ -9,9 +9,36 @@ import pandas as pd
 from pathlib import Path
 from typing import Dict, List, Tuple, Any
 import logging
+import math
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _convert_nan_to_none(obj):
+    """
+    递归将NaN和Inf转换为None，确保JSON可序列化
+
+    Parameters
+    ----------
+    obj : Any
+        要转换的对象
+
+    Returns
+    -------
+    Any
+        转换后的对象
+    """
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    elif isinstance(obj, dict):
+        return {k: _convert_nan_to_none(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_convert_nan_to_none(item) for item in obj]
+    else:
+        return obj
 
 
 def read_excel_sheets(filepath: str) -> Dict[str, pd.DataFrame]:
@@ -99,7 +126,7 @@ def preview_sheet(filepath: str, sheet_name: str, nrows: int = 10) -> Dict[str, 
             'columns': list(df.columns),
             'dtypes': {col: str(dtype) for col, dtype in df.dtypes.items()},
             'shape': full_df.shape,
-            'preview_data': df.to_dict('records'),
+            'preview_data': _convert_nan_to_none(df.to_dict('records')),
             'date_columns': date_columns,
             'date_range': date_range,
             'has_data': not df.empty

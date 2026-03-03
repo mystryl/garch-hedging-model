@@ -324,6 +324,48 @@ h1 {
 .btn-close:hover {
     opacity: 0.5;
 }
+
+/* 数据预览表格样式 */
+.preview-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin-bottom: 10px;
+}
+
+.preview-table thead {
+    background-color: #ecf0f1;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.preview-table th {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: left;
+    font-weight: bold;
+}
+
+.preview-table td {
+    border: 1px solid #ddd;
+    padding: 6px;
+}
+
+.preview-table .even-row {
+    background-color: #fff;
+}
+
+.preview-table .odd-row {
+    background-color: #f9f9f9;
+}
+
+.preview-info {
+    margin-top: 10px;
+    font-size: 11px;
+    color: #7f8c8d;
+    text-align: center;
+}
 </style>
 {% endblock %}
 

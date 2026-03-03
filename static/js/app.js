@@ -115,15 +115,14 @@ async function handleFileUpload(file) {
         };
 
         // 显示成功消息
-        console.log('文件上传成功:', result);
+        showSuccess(result.message || '文件上传成功');
 
-        // 显示工作表选择（displaySheets函数将在Task 4中实现）
-        if (typeof displaySheets === 'function') {
-            displaySheets(result.sheets, result.recommended_sheet);
-        } else {
-            console.log('工作表信息:', result.sheets);
-            console.log('推荐工作表:', result.recommended_sheet);
-            alert(`文件上传成功！\n\n文件名: ${result.filename}\n工作表数量: ${result.sheets.length}\n推荐工作表: ${result.recommended_sheet}\n\n（工作表显示功能将在下一步实现）`);
+        // 显示工作表选择
+        displaySheets(result.sheets, result.recommended_sheet);
+
+        // 自动加载推荐的工作表
+        if (result.recommended_sheet) {
+            await loadSheetPreview(result.recommended_sheet);
         }
 
     } catch (error) {
@@ -254,6 +253,296 @@ function showInfo(message) {
         messageContainer.innerHTML = '';
     }, 3000);
 }
+
+/**
+ * 显示工作表选择列表
+ * @param {Array} sheets - 工作表信息数组
+ * @param {string} recommended - 推荐的工作表名称
+ */
+function displaySheets(sheets, recommended) {
+    const sheetSelect = document.getElementById('sheetSelect');
+    const sheetSelection = document.getElementById('sheetSelection');
+
+    if (!sheetSelect || !sheetSelection) {
+        console.error('工作表选择元素未找到');
+        return;
+    }
+
+    // 清空现有选项
+    sheetSelect.innerHTML = '<option value="">-- 请选择工作表 --</option>';
+
+    // 添加工作表选项
+    sheets.forEach(sheet => {
+        if (sheet.error) {
+            console.warn(`工作表 ${sheet.name} 读取失败: ${sheet.error}`);
+            return;
+        }
+
+        const option = document.createElement('option');
+        option.value = sheet.name;
+
+        // 显示工作表信息
+        let infoText = sheet.name;
+        if (sheet.row_count !== undefined) {
+            infoText += ` (${sheet.row_count} 行`;
+            if (sheet.column_count !== undefined) {
+                infoText += ` × ${sheet.column_count} 列`;
+            }
+            infoText += ')';
+        }
+
+        // 标记推荐的工作表
+        if (sheet.name === recommended) {
+            infoText += ' ⭐ 推荐';
+            option.selected = true;
+        }
+
+        option.textContent = infoText;
+        sheetSelect.appendChild(option);
+    });
+
+    // 显示工作表选择区域
+    sheetSelection.style.display = 'block';
+
+    // 添加工作表选择变更事件监听器
+    sheetSelect.onchange = async function() {
+        const selectedValue = this.value;
+        if (selectedValue) {
+            await loadSheetPreview(selectedValue);
+        }
+    };
+
+    console.log('工作表列表已显示，推荐:', recommended);
+}
+
+
+/**
+ * 加载工作表预览
+ * @param {string} sheetName - 工作表名称
+ */
+async function loadSheetPreview(sheetName) {
+    if (!uploadedFile) {
+        showError('文件信息丢失，请重新上传文件');
+        return;
+    }
+
+    selectedSheet = sheetName;
+    console.log('加载工作表预览:', sheetName);
+
+    try {
+        const response = await fetch('/api/preview-sheet', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                filepath: uploadedFile.path,
+                sheet_name: sheetName
+            })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.error || '加载预览失败');
+        }
+
+        // 显示数据预览
+        displayDataPreview(result.preview.preview_data);
+
+        // 显示日期范围
+        if (result.preview.date_range) {
+            displayDateRange(result.preview.date_range);
+        }
+
+        // 显示列映射
+        displayColumnMapping(result.preview.columns, result.suggested_columns);
+
+        // 显示步骤2和步骤3
+        showStep2();
+
+        showSuccess(`工作表 "${sheetName}" 加载成功`);
+
+    } catch (error) {
+        console.error('加载预览错误:', error);
+        showError(error.message || '加载工作表预览失败');
+    }
+}
+
+
+/**
+ * 显示数据预览表格
+ * @param {Array} previewData - 预览数据数组
+ */
+function displayDataPreview(previewData) {
+    const dataPreview = document.getElementById('dataPreview');
+
+    if (!dataPreview) {
+        console.error('数据预览容器未找到');
+        return;
+    }
+
+    if (!previewData || previewData.length === 0) {
+        dataPreview.innerHTML = '<p style="color: #e74c3c;">无数据</p>';
+        return;
+    }
+
+    // 创建表格
+    let tableHTML = '<table class="preview-table">';
+
+    // 表头
+    tableHTML += '<thead><tr>';
+    const columns = Object.keys(previewData[0]);
+    columns.forEach(col => {
+        tableHTML += `<th>${col}</th>`;
+    });
+    tableHTML += '</tr></thead>';
+
+    // 表体
+    tableHTML += '<tbody>';
+    previewData.forEach((row, index) => {
+        tableHTML += `<tr class="${index % 2 === 0 ? 'even-row' : 'odd-row'}">`;
+        columns.forEach(col => {
+            const value = row[col];
+            const displayValue = value !== null && value !== undefined ? value : '';
+            tableHTML += `<td>${displayValue}</td>`;
+        });
+        tableHTML += '</tr>';
+    });
+    tableHTML += '</tbody></table>';
+
+    // 添加数据信息
+    tableHTML += `<div class="preview-info">显示前 ${previewData.length} 行数据</div>`;
+
+    dataPreview.innerHTML = tableHTML;
+    console.log('数据预览已显示，共', previewData.length, '行');
+}
+
+
+/**
+ * 显示日期范围
+ * @param {Object} dateRange - 日期范围对象 {start, end, count}
+ */
+function displayDateRange(dateRange) {
+    // 这个功能将在后续步骤中使用
+    // 目前我们只是保存日期范围信息
+    console.log('日期范围:', dateRange);
+
+    // 如果有日期输入框，可以在这里设置默认值
+    // 目前模板中没有日期范围输入框，所以先保存到全局状态
+    if (window.GARCHApp) {
+        window.GARCHApp.dateRange = dateRange;
+    }
+}
+
+
+/**
+ * 显示列映射选择器
+ * @param {Array} columns - 列名数组
+ * @param {Object} suggested - 推荐的列映射 {spot, future, date}
+ */
+function displayColumnMapping(columns, suggested) {
+    const spotSelect = document.getElementById('spotColumn');
+    const futureSelect = document.getElementById('futuresColumn');
+    const dateSelect = document.getElementById('dateColumn');
+    const columnMapping = document.getElementById('columnMapping');
+    const confirmBtn = document.getElementById('confirmColumnsBtn');
+
+    if (!spotSelect || !futureSelect || !dateSelect || !columnMapping) {
+        console.error('列映射元素未找到');
+        return;
+    }
+
+    // 清空现有选项
+    spotSelect.innerHTML = '<option value="">-- 请选择 --</option>';
+    futureSelect.innerHTML = '<option value="">-- 请选择 --</option>';
+    dateSelect.innerHTML = '<option value="">-- 不使用日期 --</option>';
+
+    // 添加列选项
+    columns.forEach(col => {
+        // 现货价格列
+        const spotOption = document.createElement('option');
+        spotOption.value = col;
+        spotOption.textContent = col;
+        if (col === suggested.spot) {
+            spotOption.selected = true;
+        }
+        spotSelect.appendChild(spotOption);
+
+        // 期货价格列
+        const futureOption = document.createElement('option');
+        futureOption.value = col;
+        futureOption.textContent = col;
+        if (col === suggested.future) {
+            futureOption.selected = true;
+        }
+        futureSelect.appendChild(futureOption);
+
+        // 日期列
+        const dateOption = document.createElement('option');
+        dateOption.value = col;
+        dateOption.textContent = col;
+        if (col === suggested.date) {
+            dateOption.selected = true;
+        }
+        dateSelect.appendChild(dateOption);
+    });
+
+    // 显示列映射区域
+    columnMapping.style.display = 'block';
+
+    // 更新全局列映射状态
+    columnMapping.spot = suggested.spot;
+    columnMapping.future = suggested.future;
+    columnMapping.date = suggested.date;
+
+    // 添加列变更监听器
+    const updateColumnMapping = () => {
+        columnMapping.spot = spotSelect.value;
+        columnMapping.future = futureSelect.value;
+        columnMapping.date = dateSelect.value;
+
+        // 启用/禁用确认按钮
+        if (columnMapping.spot && columnMapping.future) {
+            confirmBtn.disabled = false;
+        } else {
+            confirmBtn.disabled = true;
+        }
+    };
+
+    spotSelect.onchange = updateColumnMapping;
+    futureSelect.onchange = updateColumnMapping;
+    dateSelect.onchange = updateColumnMapping;
+
+    // 初始化按钮状态
+    updateColumnMapping();
+
+    console.log('列映射已显示:', suggested);
+}
+
+
+/**
+ * 显示步骤2（工作表选择和数据预览）
+ */
+function showStep2() {
+    const sheetSelection = document.getElementById('sheetSelection');
+    const columnMapping = document.getElementById('columnMapping');
+
+    if (sheetSelection) {
+        sheetSelection.style.display = 'block';
+    }
+
+    if (columnMapping) {
+        // 列映射区域已在 displayColumnMapping 中显示
+        columnMapping.style.display = 'block';
+    }
+
+    // 滚动到工作表选择区域
+    if (sheetSelection) {
+        sheetSelection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
 
 // 导出全局函数供其他模块使用
 window.GARCHApp = {

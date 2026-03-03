@@ -68,10 +68,10 @@ def upload_file():
 
     try:
         # 保存文件
-        filename = secure_filename(file.filename)
+        original_filename = secure_filename(file.filename)
         # 添加时间戳避免文件名冲突
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        name, ext = os.path.splitext(filename)
+        name, ext = os.path.splitext(original_filename)
         filename = f"{name}_{timestamp}{ext}"
         filepath = UPLOAD_FOLDER / filename
 
@@ -96,6 +96,149 @@ def upload_file():
         return jsonify({
             'error': f'文件处理失败: {str(e)}'
         }), 500
+
+
+@app.route('/api/preview-sheet', methods=['POST'])
+def preview_sheet_endpoint():
+    """
+    预览选定工作表的详细数据
+    """
+    data = request.get_json()
+
+    if not data or 'filepath' not in data or 'sheet_name' not in data:
+        return jsonify({'error': '缺少必要参数'}), 400
+
+    filepath = data['filepath']
+    sheet_name = data['sheet_name']
+
+    try:
+        # 获取工作表预览数据
+        preview_data = preview_sheet(filepath, sheet_name, nrows=10)
+
+        # 智能推荐列映射
+        suggested_columns = suggest_columns(preview_data)
+
+        return jsonify({
+            'success': True,
+            'preview': preview_data,
+            'suggested_columns': suggested_columns
+        })
+
+    except Exception as e:
+        return jsonify({
+            'error': f'预览工作表失败: {str(e)}'
+        }), 500
+
+
+def suggest_columns(preview_data):
+    """
+    根据预览数据智能推荐列映射
+
+    Parameters
+    ----------
+    preview_data : Dict
+        预览数据
+
+    Returns
+    -------
+    Dict
+        推荐的列映射
+    """
+    columns = preview_data.get('columns', [])
+    preview_rows = preview_data.get('preview_data', [])
+    suggested = {
+        'spot': None,
+        'future': None,
+        'date': None
+    }
+
+    # 列名转小写便于匹配
+    columns_lower = [col.lower() for col in columns]
+
+    # 推荐日期列
+    date_columns = preview_data.get('date_columns', [])
+    if date_columns:
+        suggested['date'] = date_columns[0]
+
+    # 推荐现货价格列
+    spot_keywords = ['现货', 'spot', ' spot ', '现货价格', '市场价', '华东']
+    for idx, col_lower in enumerate(columns_lower):
+        if any(keyword in col_lower for keyword in spot_keywords):
+            suggested['spot'] = columns[idx]
+            break
+
+    # 推荐期货价格列
+    future_keywords = ['期货', 'future', ' future ', '期货价格', '收盘', 'close', '主力合约', '期货价格指数']
+    for idx, col_lower in enumerate(columns_lower):
+        if any(keyword in col_lower for keyword in future_keywords):
+            suggested['future'] = columns[idx]
+            break
+
+    # 如果没有找到，检查预览数据中的内容来推断
+    if not suggested['spot'] or not suggested['future'] and preview_rows:
+        # 跳过前几行元数据，找到实际数据行
+        data_start_idx = 0
+        for idx, row in enumerate(preview_rows):
+            # 检查是否包含数值数据
+            for col in columns:
+                val = row.get(col)
+                if isinstance(val, (int, float)) and val > 0:
+                    data_start_idx = idx
+                    break
+            if data_start_idx > 0:
+                break
+
+        # 如果找到了数据行，分析列内容
+        if data_start_idx < len(preview_rows):
+            data_row = preview_rows[data_start_idx]
+
+            # 为每列打分
+            column_scores = {}
+            column_values = {}
+            for col in columns:
+                score = 0
+                val = data_row.get(col)
+                column_values[col] = val
+
+                # 数值加分
+                if isinstance(val, (int, float)):
+                    score += 10
+
+                # 检查列名
+                col_lower = col.lower()
+                if 'unnamed' in col_lower:
+                    # Unnamed列可能是数据列
+                    score += 5
+                elif any(kw in col_lower for kw in ['价格', 'price', '收盘', 'close']):
+                    score += 20
+
+                column_scores[col] = score
+
+            # 选择得分最高的两列作为现货和期货
+            sorted_columns = sorted(column_scores.items(), key=lambda x: x[1], reverse=True)
+
+            if len(sorted_columns) >= 2:
+                # 获取两列的值来判断哪个是期货（期货通常价格更高）
+                col1, col2 = sorted_columns[0][0], sorted_columns[1][0]
+                val1 = column_values.get(col1)
+                val2 = column_values.get(col2)
+
+                if isinstance(val1, (int, float)) and isinstance(val2, (int, float)):
+                    # 期货价格通常高于现货
+                    if val1 > val2:
+                        suggested['future'] = col1
+                        suggested['spot'] = col2
+                    else:
+                        suggested['future'] = col2
+                        suggested['spot'] = col1
+                else:
+                    # 如果无法判断，按顺序分配
+                    suggested['future'] = col1
+                    suggested['spot'] = col2
+            elif len(sorted_columns) >= 1 and not suggested['spot']:
+                suggested['spot'] = sorted_columns[0][0]
+
+    return suggested
 
 
 def recommend_sheet(sheets_info):
