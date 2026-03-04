@@ -113,6 +113,10 @@ def run_analysis(
     print("\n" + "=" * 70)
     # 计算最小数据量要求
     min_required = max(config.window_days * 2, config.corr_window)
+
+    # 从 kwargs 中提取 skip_rows（如果有）
+    skip_rows = kwargs.get('skip_rows', 0)
+
     data, selected = load_and_preprocess(
         file_path=excel_path,
         date_col=date_col,
@@ -120,7 +124,8 @@ def run_analysis(
         futures_col=futures_col,
         output_file=None,
         interactive=interactive,
-        min_required=min_required
+        min_required=min_required,
+        skip_rows=skip_rows
     )
 
     # 3. 拟合 GARCH 模型

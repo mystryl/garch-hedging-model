@@ -137,7 +137,7 @@ def fit_ecm_garch(
 
     # 准备ECM数据
     # 误差修正项（ECT）：协整残差（滞后1期）
-    ect = log_s - (beta0_series + beta1_series * log_f)
+    ect = pd.Series(log_s - (beta0_series + beta1_series * log_f))
     ect_lagged = ect.shift(1)  # 滞后1期
 
     # 对数收益率（差分）

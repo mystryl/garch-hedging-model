@@ -23,7 +23,7 @@ class InsufficientDataError(DataLoadError):
     pass
 
 
-def load_data_from_excel(file_path, sheet_name=0):
+def load_data_from_excel(file_path, sheet_name=0, skip_rows=0):
     """
     从 Excel 文件加载数据并显示可用列
 
@@ -33,6 +33,8 @@ def load_data_from_excel(file_path, sheet_name=0):
         Excel 文件路径
     sheet_name : str or int
         工作表名称或索引
+    skip_rows : int
+        跳过文件开头的行数
 
     Returns:
     --------
@@ -45,7 +47,10 @@ def load_data_from_excel(file_path, sheet_name=0):
     print("数据加载")
     print("=" * 60)
 
-    df = pd.read_excel(file_path, sheet_name=sheet_name)
+    df = pd.read_excel(file_path, sheet_name=sheet_name, skiprows=skip_rows)
+
+    if skip_rows > 0:
+        print(f"\n✓ 跳过前 {skip_rows} 行")
 
     print(f"\n✓ 成功读取 Excel 文件: {file_path}")
     print(f"✓ 工作表: {sheet_name}")
@@ -269,7 +274,7 @@ def preprocess_data(df, selected, output_file=None, min_required=120):
 
 
 def load_and_preprocess(file_path, date_col=None, spot_col=None, futures_col=None,
-                        output_file=None, interactive=False, min_required=120):
+                        output_file=None, interactive=False, min_required=120, skip_rows=0):
     """
     完整的数据加载和预处理流程
 
@@ -289,6 +294,8 @@ def load_and_preprocess(file_path, date_col=None, spot_col=None, futures_col=Non
         是否交互式选择列名
     min_required : int
         最小数据量要求
+    skip_rows : int
+        跳过文件开头的行数
 
     Returns:
     --------
@@ -298,7 +305,7 @@ def load_and_preprocess(file_path, date_col=None, spot_col=None, futures_col=Non
         选择的列名
     """
     # 加载数据
-    df, available_columns = load_data_from_excel(file_path)
+    df, available_columns = load_data_from_excel(file_path, skip_rows=skip_rows)
 
     # 选择列名
     if interactive:
