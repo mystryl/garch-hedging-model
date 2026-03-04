@@ -1,0 +1,454 @@
+{% extends "base.html" %}
+
+{% block title %}GARCH模型套保分析平台 - 数据分析{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>步骤1: 上传数据文件</h2>
+    <div class="upload-area" id="upload-area">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+        <p>拖拽Excel文件到此处，或点击选择文件</p>
+        <p style="font-size: 12px; color: #7f8c8d;">支持 .xlsx, .xls 格式，最大50MB</p>
+        <input type="file" id="file-input" accept=".xlsx,.xls" style="display: none;">
+        <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">选择文件</button>
+    </div>
+</div>
+
+<div class="card" id="sheetSelection" style="display: none;">
+    <h2>步骤2: 选择工作表</h2>
+    <div class="form-group">
+        <label>选择包含数据的工作表:</label>
+        <select id="sheetSelect" class="form-control">
+            <option value="">-- 请选择工作表 --</option>
+        </select>
+    </div>
+    <div class="form-group">
+        <label>数据预览 (前5行):</label>
+        <div id="dataPreview" style="max-height: 300px; overflow: auto; border: 1px solid #ddd; padding: 10px;">
+            <p style="color: #7f8c8d;">请先选择工作表</p>
+        </div>
+    </div>
+</div>
+
+<div class="card" id="columnMapping" style="display: none;">
+    <h2>步骤3: 配置数据列</h2>
+    <div class="form-group">
+        <label for="spotColumn">现货价格列:</label>
+        <select id="spotColumn" class="form-control">
+            <option value="">-- 请选择 --</option>
+        </select>
+    </div>
+    <div class="form-group">
+        <label for="futuresColumn">期货价格列:</label>
+        <select id="futuresColumn" class="form-control">
+            <option value="">-- 请选择 --</option>
+        </select>
+    </div>
+    <div class="form-group">
+        <label for="dateColumn">日期列 (可选):</label>
+        <select id="dateColumn" class="form-control">
+            <option value="">-- 不使用日期 --</option>
+        </select>
+    </div>
+    <button class="btn btn-primary" id="confirmColumnsBtn" disabled>确认配置</button>
+</div>
+
+<div class="card" id="modelSelection" style="display: none;">
+    <h2>步骤4: 选择模型并运行</h2>
+    <div class="form-group">
+        <label>选择GARCH模型:</label>
+        <div class="radio-group">
+            <label class="radio-option">
+                <input type="radio" name="model" value="basic_garch" checked>
+                <div>
+                    <strong>Basic GARCH</strong>
+                    <p style="font-size: 12px; color: #7f8c8d; margin: 5px 0;">基础GARCH模型，快速计算</p>
+                </div>
+            </label>
+            <label class="radio-option">
+                <input type="radio" name="model" value="dcc_garch">
+                <div>
+                    <strong>DCC-GARCH</strong>
+                    <p style="font-size: 12px; color: #7f8c8d; margin: 5px 0;">动态条件相关GARCH，捕捉时变相关性</p>
+                </div>
+            </label>
+            <label class="radio-option">
+                <input type="radio" name="model" value="ecm_garch">
+                <div>
+                    <strong>ECM-GARCH</strong>
+                    <p style="font-size: 12px; color: #7f8c8d; margin: 5px 0;">误差修正GARCH，考虑协整关系</p>
+                </div>
+            </label>
+        </div>
+    </div>
+    <button class="btn btn-success" id="runModelBtn" style="width: 100%; font-size: 18px; padding: 15px;">
+        运行模型分析
+    </button>
+    <div id="progressArea" style="display: none; margin-top: 20px;">
+        <div class="progress">
+            <div class="progress-bar" id="progressBar" style="width: 0%;"></div>
+        </div>
+        <p id="progressText" style="text-align: center; margin-top: 10px; color: #7f8c8d;">准备中...</p>
+    </div>
+</div>
+
+<div class="card" id="backtestConfig" style="display: none;">
+    <h2>步骤4.5: 配置滚动回测（可选）</h2>
+
+    <div class="form-group">
+        <label style="display: flex; align-items: center; cursor: pointer;">
+            <input type="checkbox" id="enableRollingBacktest" style="width: 20px; height: 20px; margin-right: 10px;">
+            <span>启用滚动回测分析</span>
+        </label>
+        <p style="font-size: 12px; color: #7f8c8d; margin-top: 8px; margin-left: 30px;">
+            滚动回测会随机选择多个时间窗口进行回测，更能反映实际套保效果，避免全样本回测的过拟合问题
+        </p>
+    </div>
+
+    <div id="rollingBacktestOptions" style="display: none; margin-top: 20px; padding: 20px; background-color: #f8f9fa; border-radius: 4px;">
+        <h4 style="color: #2c3e50; margin-bottom: 15px;">回测参数</h4>
+
+        <div class="form-group">
+            <label>回测周期数:</label>
+            <select id="nPeriods" class="form-control">
+                <option value="3">3个周期（快速）</option>
+                <option value="6" selected>6个周期（推荐）</option>
+                <option value="9">9个周期（详细）</option>
+            </select>
+            <p style="font-size: 11px; color: #7f8c8d; margin-top: 5px;">将随机选择N个时间窗口进行独立回测</p>
+        </div>
+
+        <div class="form-group">
+            <label>每个周期天数:</label>
+            <select id="windowDays" class="form-control">
+                <option value="60">60天（约2个月）</option>
+                <option value="90" selected>90天（约3个月，推荐）</option>
+                <option value="120">120天（约4个月）</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>最小间隔天数:</label>
+            <select id="minGapDays" class="form-control">
+                <option value="120">120天</option>
+                <option value="180" selected>180天（推荐）</option>
+                <option value="240">240天</option>
+            </select>
+            <p style="font-size: 11px; color: #7f8c8d; margin-top: 5px;">两个回测起始日期之间的最小间隔</p>
+        </div>
+
+        <h4 style="color: #2c3e50; margin: 20px 0 15px 0;">随机种子</h4>
+
+        <div class="form-group">
+            <label style="display: block; margin-bottom: 10px;">选择种子模式：</label>
+            <label style="display: flex; align-items: center; margin-bottom: 10px; cursor: pointer;">
+                <input type="radio" name="seedMode" value="fixed" checked style="width: 18px; height: 18px; margin-right: 10px;">
+                <div>
+                    <strong>固定种子</strong>
+                    <p style="font-size: 12px; color: #7f8c8d; margin: 3px 0 0 0;">结果可复现，便于对比分析</p>
+                </div>
+            </label>
+            <label style="display: flex; align-items: center; cursor: pointer;">
+                <input type="radio" name="seedMode" value="random" style="width: 18px; height: 18px; margin-right: 10px;">
+                <div>
+                    <strong>随机种子</strong>
+                    <p style="font-size: 12px; color: #7f8c8d; margin: 3px 0 0 0;">每次运行结果不同，更贴近真实</p>
+                </div>
+            </label>
+        </div>
+
+        <div class="form-group" id="fixedSeedInput">
+            <label>种子值:</label>
+            <input type="number" id="seedValue" class="form-control" value="42" min="0" max="999999">
+            <p style="font-size: 11px; color: #7f8c8d; margin-top: 5px;">固定数值可确保每次运行选择相同的时间窗口</p>
+        </div>
+
+        <div style="background-color: #e8f4f8; padding: 15px; border-radius: 4px; border-left: 4px solid #3498db;">
+            <h5 style="color: #2980b9; margin: 0 0 10px 0;">💡 滚动回测说明</h5>
+            <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #2c3e50;">
+                <li style="margin-bottom: 5px;">会自动避开1月、5月、10月等交割月份及其前后30天</li>
+                <li style="margin-bottom: 5px;">每个周期独立评估套保效果，最后计算平均表现</li>
+                <li style="margin-bottom: 5px;">推荐使用<strong>6个周期、每个周期90天</strong>的配置</li>
+                <li>固定种子便于结果复现和对比不同模型的套保效果</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<div class="card" id="resultsSection" style="display: none;">
+    <h2>步骤5: 分析结果</h2>
+    <div id="resultsContent">
+        <p style="text-align: center; color: #7f8c8d;">等待结果...</p>
+    </div>
+</div>
+
+<style>
+.upload-area {
+    border: 2px dashed #3498db;
+    border-radius: 8px;
+    padding: 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.upload-area:hover {
+    border-color: #2980b9;
+    background-color: #ecf0f1;
+}
+
+.upload-area.drag-over {
+    border-color: #2980b9;
+    background-color: #d5dbdb;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+.form-control {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.radio-option {
+    display: flex;
+    align-items: flex-start;
+    padding: 15px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.radio-option:hover {
+    background-color: #ecf0f1;
+}
+
+.radio-option input[type="radio"] {
+    margin-right: 15px;
+    margin-top: 5px;
+}
+
+.radio-option div {
+    flex: 1;
+}
+
+.progress {
+    width: 100%;
+    height: 30px;
+    background-color: #ecf0f1;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    background-color: #3498db;
+    transition: width 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+}
+
+.card {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 30px;
+    margin-bottom: 30px;
+}
+
+.card h2 {
+    color: #2c3e50;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #3498db;
+}
+
+.btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s;
+}
+
+.btn-primary {
+    background-color: #3498db;
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: #2980b9;
+}
+
+.btn-success {
+    background-color: #27ae60;
+    color: white;
+}
+
+.btn-success:hover {
+    background-color: #229954;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+h1 {
+    text-align: center;
+    color: #2c3e50;
+    margin-bottom: 40px;
+}
+
+/* Upload progress styles */
+.upload-progress {
+    text-align: center;
+}
+
+.spinner {
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #3498db;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+    margin: 20px auto;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Error and message containers */
+.error-container,
+.message-container {
+    margin-bottom: 20px;
+}
+
+.alert {
+    padding: 15px;
+    margin-bottom: 20px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+}
+
+.alert-danger {
+    color: #a94442;
+    background-color: #f2dede;
+    border-color: #ebccd1;
+}
+
+.alert-success {
+    color: #3c763d;
+    background-color: #dff0d8;
+    border-color: #d6e9c6;
+}
+
+.alert-info {
+    color: #31708f;
+    background-color: #d9edf7;
+    border-color: #bce8f1;
+}
+
+.btn-close {
+    float: right;
+    background: none;
+    border: none;
+    font-size: 21px;
+    line-height: 1;
+    color: #000;
+    text-shadow: 0 1px 0 #fff;
+    opacity: 0.2;
+    cursor: pointer;
+}
+
+.btn-close:hover {
+    opacity: 0.5;
+}
+
+/* 数据预览表格样式 */
+.preview-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin-bottom: 10px;
+}
+
+.preview-table thead {
+    background-color: #ecf0f1;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.preview-table th {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: left;
+    font-weight: bold;
+}
+
+.preview-table td {
+    border: 1px solid #ddd;
+    padding: 6px;
+}
+
+.preview-table .even-row {
+    background-color: #fff;
+}
+
+.preview-table .odd-row {
+    background-color: #f9f9f9;
+}
+
+.preview-info {
+    margin-top: 10px;
+    font-size: 11px;
+    color: #7f8c8d;
+    text-align: center;
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 页面特定的初始化逻辑
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('GARCH套保分析平台已加载');
+    console.log('等待用户上传数据文件...');
+});
+</script>
+{% endblock %}
