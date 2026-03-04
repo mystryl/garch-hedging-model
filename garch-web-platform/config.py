@@ -17,8 +17,9 @@ if not SECRET_KEY:
 DEBUG = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 'yes', 'on')
 HOST = '0.0.0.0'
 # 注意：避免使用浏览器不安全端口（如 6000, 6665-6669 等）
-# 推荐端口：5000, 5001, 8000, 8080, 3000 等
-PORT = int(os.environ.get('PORT', '5000'))  # 改为 5000（Flask 默认端口）
+# 推荐端口：5000, 5001, 8000, 8080, 3000, 5050 等
+# macOS 上 5000 常被 AirPlay Receiver 占用，使用 5050 作为替代
+PORT = int(os.environ.get('PORT', '5050'))  # 改为 5050
 
 # 文件上传配置
 UPLOAD_FOLDER = BASE_DIR / 'outputs' / 'uploaded'

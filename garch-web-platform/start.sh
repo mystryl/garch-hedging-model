@@ -35,7 +35,7 @@ nohup $PYTHON_CMD app.py > flask.log 2>&1 &
 FLASK_PID=$!
 
 echo "Flask应用已启动 (PID: $FLASK_PID)"
-echo "请在浏览器中访问: http://localhost:6000"
+echo "请在浏览器中访问: http://localhost:5050"
 echo ""
 echo "查看日志: tail -f flask.log"
 echo "停止应用: pkill -f \"($PYTHON_CMD|python).*app.py\""
