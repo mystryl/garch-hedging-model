@@ -4,10 +4,19 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent
 
 # Flask配置
-SECRET_KEY = os.environ.get('SECRET_KEY', 'garch-platform-dev-key')
-DEBUG = True
+# 注意：在生产环境中，必须设置 SECRET_KEY 环境变量
+SECRET_KEY = os.environ.get('SECRET_KEY', None)
+if not SECRET_KEY:
+    import secrets
+    SECRET_KEY = secrets.token_hex(32)
+    print("⚠️  警告: 使用自动生成的 SECRET_KEY。重启服务后会话将失效。")
+    print("    请在生产环境设置 SECRET_KEY 环境变量。")
+
+# DEBUG 模式：默认关闭，可通过环境变量启用
+# 生产环境必须设置为 False
+DEBUG = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 'yes', 'on')
 HOST = '0.0.0.0'
-PORT = 6000  # Changed to 6000
+PORT = int(os.environ.get('PORT', '6000'))  # 可通过环境变量配置端口
 
 # 文件上传配置
 UPLOAD_FOLDER = BASE_DIR / 'outputs' / 'uploaded'

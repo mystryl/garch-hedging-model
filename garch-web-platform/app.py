@@ -428,7 +428,17 @@ def download_file(filename):
     下载生成的报告文件
     """
     try:
-        file_path = OUTPUT_DIR / 'web_reports' / filename
+        # 安全验证：防止路径遍历攻击
+        safe_filename = secure_filename(filename)
+        if safe_filename != filename or '..' in filename or filename.startswith('/'):
+            return jsonify({'error': '非法文件名'}), 400
+
+        file_path = (OUTPUT_DIR / 'web_reports' / safe_filename).resolve()
+        allowed_dir = (OUTPUT_DIR / 'web_reports').resolve()
+
+        # 确保解析后的路径仍在允许的目录内
+        if not str(file_path).startswith(str(allowed_dir)):
+            return jsonify({'error': '非法文件路径'}), 403
 
         if not file_path.exists():
             return jsonify({'error': f'文件不存在: {filename}'}), 404
@@ -436,7 +446,7 @@ def download_file(filename):
         return send_file(
             file_path,
             as_attachment=True,
-            download_name=filename,
+            download_name=safe_filename,
             mimetype='application/zip'
         )
 
@@ -455,10 +465,23 @@ def view_report():
         return '<h1>错误：缺少报告路径参数</h1>', 400
 
     try:
-        file_path = OUTPUT_DIR / report_path
+        # 安全验证：防止路径遍历攻击
+        if '..' in report_path or report_path.startswith('/'):
+            return '<h1>错误：非法路径</h1>', 400
+
+        file_path = (OUTPUT_DIR / report_path).resolve()
+        allowed_dir = OUTPUT_DIR.resolve()
+
+        # 确保解析后的路径仍在输出目录内
+        if not str(file_path).startswith(str(allowed_dir)):
+            return '<h1>错误：非法路径</h1>', 403
 
         if not file_path.exists():
             return f'<h1>错误：报告文件不存在</h1><p>路径: {report_path}</p>', 404
+
+        # 只允许查看 HTML 文件
+        if not file_path.suffix.lower() == '.html':
+            return '<h1>错误：仅支持查看 HTML 文件</h1>', 400
 
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()

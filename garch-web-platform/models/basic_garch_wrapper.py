@@ -13,9 +13,11 @@ from pathlib import Path
 from datetime import datetime
 import traceback
 
-# 添加项目根目录到路径
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+# 添加 lib 目录到路径（basic_garch_analyzer 位于 lib/ 中）
+lib_dir = Path(__file__).parent.parent / 'lib'
+lib_dir_str = str(lib_dir)
+if lib_dir_str not in sys.path:
+    sys.path.insert(0, lib_dir_str)
 
 from basic_garch_analyzer import run_analysis
 from basic_garch_analyzer.config import ModelConfig

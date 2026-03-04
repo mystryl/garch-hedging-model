@@ -13,9 +13,18 @@ from datetime import datetime
 import traceback
 import numpy as np
 
-# 添加项目根目录到路径
+# 添加必要的目录到路径
+# lib/ 目录用于导入 model_ecm_garch
+# 项目根目录用于导入 utils
+lib_dir = Path(__file__).parent.parent / 'lib'
 project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+
+lib_dir_str = str(lib_dir)
+project_root_str = str(project_root)
+if lib_dir_str not in sys.path:
+    sys.path.insert(0, lib_dir_str)
+if project_root_str not in sys.path:
+    sys.path.insert(0, project_root_str)
 
 from model_ecm_garch import fit_ecm_garch
 from utils.data_processor import read_excel_sheets

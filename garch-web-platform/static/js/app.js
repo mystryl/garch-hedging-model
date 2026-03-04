@@ -559,15 +559,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // 训练集比例滑块
-    const trainSizeInput = document.getElementById('trainSize');
-    const trainSizeValue = document.getElementById('trainSizeValue');
-    if (trainSizeInput && trainSizeValue) {
-        trainSizeInput.addEventListener('input', function() {
-            trainSizeValue.textContent = this.value + '%';
-        });
-    }
-
     // 运行模型按钮
     const runModelBtn = document.getElementById('runModelBtn');
     if (runModelBtn) {
