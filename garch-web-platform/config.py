@@ -16,7 +16,9 @@ if not SECRET_KEY:
 # 生产环境必须设置为 False
 DEBUG = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 'yes', 'on')
 HOST = '0.0.0.0'
-PORT = int(os.environ.get('PORT', '6000'))  # 可通过环境变量配置端口
+# 注意：避免使用浏览器不安全端口（如 6000, 6665-6669 等）
+# 推荐端口：5000, 5001, 8000, 8080, 3000 等
+PORT = int(os.environ.get('PORT', '5000'))  # 改为 5000（Flask 默认端口）
 
 # 文件上传配置
 UPLOAD_FOLDER = BASE_DIR / 'outputs' / 'uploaded'
