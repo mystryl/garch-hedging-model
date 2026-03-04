@@ -336,6 +336,13 @@ def generate_report():
     date_range = data.get('date_range')
     model_type = data.get('model_type')
 
+    # 提取滚动回测参数（新增）
+    enable_rolling_backtest = data.get('enable_rolling_backtest', False)
+    n_periods = data.get('n_periods', 6)
+    window_days = data.get('window_days', 90)
+    min_gap_days = data.get('min_gap_days', 180)
+    backtest_seed = data.get('backtest_seed', None)  # None 或整数
+
     # 参数验证
     if not filepath:
         return jsonify({'error': '缺少文件路径'}), 400
@@ -354,7 +361,26 @@ def generate_report():
 
     try:
         # 获取模型配置
-        model_config = MODEL_CONFIG.get(model_type, {})
+        model_config = MODEL_CONFIG.get(model_type, {}).copy()
+
+        # 合并滚动回测配置到 model_config（新增）
+        model_config.update({
+            'enable_rolling_backtest': enable_rolling_backtest,
+            'n_periods': n_periods,
+            'window_days': window_days,
+            'min_gap_days': min_gap_days,
+            'backtest_seed': backtest_seed
+        })
+
+        # 打印配置信息
+        if enable_rolling_backtest:
+            print(f"\n[滚动回测配置]")
+            print(f"  启用: 是")
+            print(f"  周期数: {n_periods}")
+            print(f"  每周期天数: {window_days}")
+            print(f"  最小间隔: {min_gap_days}")
+            print(f"  随机种子: {backtest_seed if backtest_seed is not None else '随机'}")
+            print(f"{'='*60}\n")
 
         # 调用模型运行器
         print(f"\n{'='*60}")

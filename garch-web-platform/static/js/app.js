@@ -9,12 +9,24 @@ let columnMapping = {
     date: null
 };
 
+// 滚动回测配置
+let backtestConfig = {
+    enabled: false,
+    n_periods: 6,
+    window_days: 90,
+    min_gap_days: 180,
+    seed_mode: 'fixed',  // 'fixed' 或 'random'
+    seed_value: 42
+};
+
 // DOM加载完成后执行
 document.addEventListener('DOMContentLoaded', function() {
     console.log('✓ DOM 已加载完成');
     console.log('✓ 开始初始化上传区域');
     initializeUploadArea();
     console.log('✓ 上传区域初始化完成');
+    initializeBacktestConfig();
+    console.log('✓ 滚动回测配置初始化完成');
 });
 
 /**
@@ -78,6 +90,82 @@ function initializeUploadArea() {
     });
 
     console.log('文件上传区域初始化完成');
+}
+
+/**
+ * 初始化滚动回测配置界面
+ */
+function initializeBacktestConfig() {
+    console.log('→ 初始化滚动回测配置');
+
+    // 获取元素
+    const enableCheckbox = document.getElementById('enableRollingBacktest');
+    const optionsDiv = document.getElementById('rollingBacktestOptions');
+    const nPeriodsSelect = document.getElementById('nPeriods');
+    const windowDaysSelect = document.getElementById('windowDays');
+    const minGapDaysSelect = document.getElementById('minGapDays');
+    const seedValueInput = document.getElementById('seedValue');
+
+    if (!enableCheckbox) {
+        console.warn('✗ 未找到滚动回测配置元素');
+        return;
+    }
+
+    // 启用/禁用滚动回测
+    enableCheckbox.addEventListener('change', (e) => {
+        backtestConfig.enabled = e.target.checked;
+        optionsDiv.style.display = e.target.checked ? 'block' : 'none';
+
+        // 显示/隐藏配置选项
+        if (e.target.checked) {
+            console.log('✓ 滚动回测已启用');
+        } else {
+            console.log('✗ 滚动回测已禁用');
+        }
+    });
+
+    // 回测周期数
+    nPeriodsSelect.addEventListener('change', (e) => {
+        backtestConfig.n_periods = parseInt(e.target.value);
+        console.log('  回测周期数:', backtestConfig.n_periods);
+    });
+
+    // 每个周期天数
+    windowDaysSelect.addEventListener('change', (e) => {
+        backtestConfig.window_days = parseInt(e.target.value);
+        console.log('  每个周期天数:', backtestConfig.window_days);
+    });
+
+    // 最小间隔天数
+    minGapDaysSelect.addEventListener('change', (e) => {
+        backtestConfig.min_gap_days = parseInt(e.target.value);
+        console.log('  最小间隔天数:', backtestConfig.min_gap_days);
+    });
+
+    // 种子模式选择
+    const seedModeRadios = document.querySelectorAll('input[name="seedMode"]');
+    seedModeRadios.forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            backtestConfig.seed_mode = e.target.value;
+            const fixedSeedInput = document.getElementById('fixedSeedInput');
+
+            if (e.target.value === 'fixed') {
+                fixedSeedInput.style.display = 'block';
+                console.log('  种子模式: 固定种子');
+            } else {
+                fixedSeedInput.style.display = 'none';
+                console.log('  种子模式: 随机种子');
+            }
+        });
+    });
+
+    // 固定种子值
+    seedValueInput.addEventListener('change', (e) => {
+        backtestConfig.seed_value = parseInt(e.target.value) || 42;
+        console.log('  固定种子值:', backtestConfig.seed_value);
+    });
+
+    console.log('✓ 滚动回测配置初始化完成');
 }
 
 /**
@@ -575,6 +663,16 @@ document.addEventListener('DOMContentLoaded', function() {
             const modelSelection = document.getElementById('modelSelection');
             if (modelSelection) {
                 modelSelection.style.display = 'block';
+            }
+
+            // 显示滚动回测配置区域
+            const backtestConfig = document.getElementById('backtestConfig');
+            if (backtestConfig) {
+                backtestConfig.style.display = 'block';
+            }
+
+            // 滚动到模型选择区域
+            if (modelSelection) {
                 modelSelection.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
             showSuccess('列配置已确认，请选择模型并运行');
@@ -627,6 +725,17 @@ async function generateReport() {
     showProgress('正在运行模型分析...');
 
     try {
+        // 准备滚动回测配置
+        const backtestParams = backtestConfig.enabled ? {
+            enable_rolling_backtest: true,
+            n_periods: backtestConfig.n_periods,
+            window_days: backtestConfig.window_days,
+            min_gap_days: backtestConfig.min_gap_days,
+            backtest_seed: backtestConfig.seed_mode === 'fixed' ? backtestConfig.seed_value : null
+        } : {
+            enable_rolling_backtest: false
+        };
+
         const response = await fetch('/api/generate', {
             method: 'POST',
             headers: {
@@ -637,7 +746,8 @@ async function generateReport() {
                 sheet_name: selectedSheet,
                 column_mapping: columnMapping,
                 date_range: null,
-                model_type: modelType
+                model_type: modelType,
+                ...backtestParams  // 展开滚动回测参数
             })
         });
 

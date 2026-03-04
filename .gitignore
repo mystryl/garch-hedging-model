@@ -10,7 +10,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# 只忽略根目录的 lib/（虚拟环境），允许 garch-web-platform/lib/
+/lib/
 lib64/
 parts/
 sdist/
@@ -19,6 +20,9 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+
+# 但保留源代码 lib 目录
+!garch-web-platform/lib/
 
 # Virtual Environment
 venv/

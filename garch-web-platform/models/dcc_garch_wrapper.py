@@ -26,7 +26,7 @@ if lib_dir_str not in sys.path:
 if project_root_str not in sys.path:
     sys.path.insert(0, project_root_str)
 
-from model_dcc_garch import fit_dcc_garch
+from lib.dcc_garch_analyzer import fit_dcc_garch, run_rolling_backtest, DCCGarchConfig
 from utils.data_processor import read_excel_sheets
 
 
@@ -155,18 +155,54 @@ def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, mod
             data = data[mask].reset_index(drop=True)
             print(f"日期范围过滤后: {len(data)} 条记录")
 
-        # 4. 运行DCC-GARCH模型
+        # 4. 创建DCC-GARCH配置并运行模型
         print(f"\n开始运行DCC-GARCH分析...")
-        print(f"模型配置: p={model_config.get('p', 1)}, q={model_config.get('q', 1)}, "
-              f"dist={model_config.get('dist', 'norm')}")
 
-        model_results = fit_dcc_garch(
-            data,
+        # 创建配置对象
+        config = DCCGarchConfig(
             p=model_config.get('p', 1),
             q=model_config.get('q', 1),
-            output_dir=str(run_output_dir / 'model_results'),
-            dist=model_config.get('dist', 'norm')
+            dist=model_config.get('dist', 'norm'),
+            tax_rate=model_config.get('tax_rate', 0.13),
+            enable_rolling_backtest=model_config.get('enable_rolling_backtest', False),
+            n_periods=model_config.get('n_periods', 6),
+            window_days=model_config.get('window_days', 90),
+            min_gap_days=model_config.get('min_gap_days', 180),
+            backtest_seed=model_config.get('backtest_seed', None),
+            output_dir=str(run_output_dir / 'model_results')
         )
+
+        print(f"模型配置: p={config.p}, q={config.q}, dist={config.dist}")
+        if config.enable_rolling_backtest:
+            print(f"滚动回测: n_periods={config.n_periods}, "
+                  f"window_days={config.window_days}, "
+                  f"seed={'随机' if config.backtest_seed is None else config.backtest_seed}")
+
+        # 拟合模型
+        model_results = fit_dcc_garch(
+            data,
+            p=config.p,
+            q=config.q,
+            output_dir=config.output_dir,
+            dist=config.dist,
+            config=config
+        )
+
+        # 如果启用滚动回测，运行滚动回测
+        if config.enable_rolling_backtest:
+            print("\n运行滚动回测...")
+            backtest_results = run_rolling_backtest(
+                data=data,
+                hedge_ratios=model_results['h_actual'],
+                n_periods=config.n_periods,
+                window_days=config.window_days,
+                min_gap_days=config.min_gap_days,
+                seed=config.backtest_seed,
+                tax_rate=config.tax_rate,
+                output_dir=str(run_output_dir)
+            )
+            # 将滚动回测结果合并到 model_results
+            model_results['rolling_backtest'] = backtest_results
 
         # 5. 提取摘要信息
         h_actual = model_results.get('h_actual', [])

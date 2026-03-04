@@ -13,11 +13,13 @@ from pathlib import Path
 from datetime import datetime
 import traceback
 
-# 添加 lib 目录到路径（basic_garch_analyzer 位于 lib/ 中）
-lib_dir = Path(__file__).parent.parent / 'lib'
-lib_dir_str = str(lib_dir)
-if lib_dir_str not in sys.path:
-    sys.path.insert(0, lib_dir_str)
+# 添加项目根目录到路径（basic_garch_analyzer 位于 worktree 根目录）
+# __file__ = models/basic_garch_wrapper.py
+# parent = models/, parent.parent = garch-web-platform/, parent.parent.parent = worktree root
+worktree_root = Path(__file__).parent.parent.parent
+worktree_root_str = str(worktree_root)
+if worktree_root_str not in sys.path:
+    sys.path.insert(0, worktree_root_str)
 
 from basic_garch_analyzer import run_analysis
 from basic_garch_analyzer.config import ModelConfig
@@ -91,12 +93,21 @@ def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, mod
             q=model_config.get('q', 1),
             corr_window=model_config.get('corr_window', 120),
             tax_rate=model_config.get('tax_rate', 0.13),
-            enable_rolling_backtest=False,  # Web模式暂不使用滚动回测
+            enable_rolling_backtest=model_config.get('enable_rolling_backtest', False),
+            n_periods=model_config.get('n_periods', 6),
+            window_days=model_config.get('window_days', 90),
+            min_gap_days=model_config.get('min_gap_days', 180),
+            backtest_seed=model_config.get('backtest_seed', None),  # None=随机
             output_dir=str(run_output_dir)
         )
 
         print(f"模型配置: p={config.p}, q={config.q}, "
               f"corr_window={config.corr_window}, tax_rate={config.tax_rate}")
+        if config.enable_rolling_backtest:
+            print(f"滚动回测: n_periods={config.n_periods}, "
+                  f"window_days={config.window_days}, "
+                  f"min_gap_days={config.min_gap_days}, "
+                  f"seed={'随机' if config.backtest_seed is None else config.backtest_seed}")
 
         # 4. 运行分析
         print("\n开始运行Basic GARCH分析...")

@@ -96,6 +96,89 @@
     </div>
 </div>
 
+<div class="card" id="backtestConfig" style="display: none;">
+    <h2>步骤4.5: 配置滚动回测（可选）</h2>
+
+    <div class="form-group">
+        <label style="display: flex; align-items: center; cursor: pointer;">
+            <input type="checkbox" id="enableRollingBacktest" style="width: 20px; height: 20px; margin-right: 10px;">
+            <span>启用滚动回测分析</span>
+        </label>
+        <p style="font-size: 12px; color: #7f8c8d; margin-top: 8px; margin-left: 30px;">
+            滚动回测会随机选择多个时间窗口进行回测，更能反映实际套保效果，避免全样本回测的过拟合问题
+        </p>
+    </div>
+
+    <div id="rollingBacktestOptions" style="display: none; margin-top: 20px; padding: 20px; background-color: #f8f9fa; border-radius: 4px;">
+        <h4 style="color: #2c3e50; margin-bottom: 15px;">回测参数</h4>
+
+        <div class="form-group">
+            <label>回测周期数:</label>
+            <select id="nPeriods" class="form-control">
+                <option value="3">3个周期（快速）</option>
+                <option value="6" selected>6个周期（推荐）</option>
+                <option value="9">9个周期（详细）</option>
+            </select>
+            <p style="font-size: 11px; color: #7f8c8d; margin-top: 5px;">将随机选择N个时间窗口进行独立回测</p>
+        </div>
+
+        <div class="form-group">
+            <label>每个周期天数:</label>
+            <select id="windowDays" class="form-control">
+                <option value="60">60天（约2个月）</option>
+                <option value="90" selected>90天（约3个月，推荐）</option>
+                <option value="120">120天（约4个月）</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>最小间隔天数:</label>
+            <select id="minGapDays" class="form-control">
+                <option value="120">120天</option>
+                <option value="180" selected>180天（推荐）</option>
+                <option value="240">240天</option>
+            </select>
+            <p style="font-size: 11px; color: #7f8c8d; margin-top: 5px;">两个回测起始日期之间的最小间隔</p>
+        </div>
+
+        <h4 style="color: #2c3e50; margin: 20px 0 15px 0;">随机种子</h4>
+
+        <div class="form-group">
+            <label style="display: block; margin-bottom: 10px;">选择种子模式：</label>
+            <label style="display: flex; align-items: center; margin-bottom: 10px; cursor: pointer;">
+                <input type="radio" name="seedMode" value="fixed" checked style="width: 18px; height: 18px; margin-right: 10px;">
+                <div>
+                    <strong>固定种子</strong>
+                    <p style="font-size: 12px; color: #7f8c8d; margin: 3px 0 0 0;">结果可复现，便于对比分析</p>
+                </div>
+            </label>
+            <label style="display: flex; align-items: center; cursor: pointer;">
+                <input type="radio" name="seedMode" value="random" style="width: 18px; height: 18px; margin-right: 10px;">
+                <div>
+                    <strong>随机种子</strong>
+                    <p style="font-size: 12px; color: #7f8c8d; margin: 3px 0 0 0;">每次运行结果不同，更贴近真实</p>
+                </div>
+            </label>
+        </div>
+
+        <div class="form-group" id="fixedSeedInput">
+            <label>种子值:</label>
+            <input type="number" id="seedValue" class="form-control" value="42" min="0" max="999999">
+            <p style="font-size: 11px; color: #7f8c8d; margin-top: 5px;">固定数值可确保每次运行选择相同的时间窗口</p>
+        </div>
+
+        <div style="background-color: #e8f4f8; padding: 15px; border-radius: 4px; border-left: 4px solid #3498db;">
+            <h5 style="color: #2980b9; margin: 0 0 10px 0;">💡 滚动回测说明</h5>
+            <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #2c3e50;">
+                <li style="margin-bottom: 5px;">会自动避开1月、5月、10月等交割月份及其前后30天</li>
+                <li style="margin-bottom: 5px;">每个周期独立评估套保效果，最后计算平均表现</li>
+                <li style="margin-bottom: 5px;">推荐使用<strong>6个周期、每个周期90天</strong>的配置</li>
+                <li>固定种子便于结果复现和对比不同模型的套保效果</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
 <div class="card" id="resultsSection" style="display: none;">
     <h2>步骤5: 分析结果</h2>
     <div id="resultsContent">
