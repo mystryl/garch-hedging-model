@@ -11,29 +11,43 @@ let columnMapping = {
 
 // DOM加载完成后执行
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('✓ DOM 已加载完成');
+    console.log('✓ 开始初始化上传区域');
     initializeUploadArea();
+    console.log('✓ 上传区域初始化完成');
 });
 
 /**
  * 初始化文件上传区域
  */
 function initializeUploadArea() {
+    console.log('→ 查找上传区域元素...');
     const uploadArea = document.getElementById('upload-area');
     const fileInput = document.getElementById('file-input');
 
+    console.log('  uploadArea:', uploadArea);
+    console.log('  fileInput:', fileInput);
+
     if (!uploadArea || !fileInput) {
-        console.error('上传区域未找到');
+        console.error('✗ 上传区域未找到');
+        console.error('  uploadArea =', uploadArea);
+        console.error('  fileInput =', fileInput);
         return;
     }
 
+    console.log('✓ 找到上传区域元素');
+
     // 点击上传区域触发文件选择
     uploadArea.addEventListener('click', () => {
+        console.log('→ 点击上传区域');
         fileInput.click();
     });
 
     // 文件选择事件
     fileInput.addEventListener('change', (e) => {
+        console.log('→ 文件选择事件触发');
         const file = e.target.files[0];
+        console.log('  选择的文件:', file);
         if (file) {
             handleFileUpload(file);
         }
@@ -70,15 +84,23 @@ function initializeUploadArea() {
  * 处理文件上传
  */
 async function handleFileUpload(file) {
+    console.log('='.repeat(50));
+    console.log('开始处理文件上传');
+    console.log('  文件名:', file.name);
+    console.log('  文件大小:', file.size, 'bytes');
+    console.log('  文件类型:', file.type);
+
     // 验证文件类型
     const validExtensions = ['.xlsx', '.xls'];
     const fileName = file.name.toLowerCase();
     const isValidFile = validExtensions.some(ext => fileName.endsWith(ext));
 
     if (!isValidFile) {
+        console.error('✗ 文件类型不合法');
         showError('不支持的文件格式，请上传Excel文件 (.xlsx, .xls)');
         return;
     }
+    console.log('✓ 文件类型验证通过');
 
     // 验证文件大小（50MB）
     const maxSize = 50 * 1024 * 1024;

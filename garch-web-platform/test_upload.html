@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head><title>测试上传</title></head>
+<body>
+<h1>测试文件上传</h1>
+<input type="file" id="fileInput">
+<button onclick="testUpload()">上传</button>
+<div id="result"></div>
+
+<script>
+async function testUpload() {
+    const file = document.getElementById('fileInput').files[0];
+    if (!file) {
+        alert('请选择文件');
+        return;
+    }
+    
+    console.log('开始上传:', file.name);
+    document.getElementById('result').textContent = '上传中...';
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+        const response = await fetch('http://localhost:5050/api/upload', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        console.log('服务器响应:', result);
+        document.getElementById('result').innerHTML = `
+            <pre>${JSON.stringify(result, null, 2)}</pre>
+        `;
+    } catch (error) {
+        console.error('上传失败:', error);
+        document.getElementById('result').textContent = '错误: ' + error.message;
+    }
+}
+</script>
+</body>
+</html>

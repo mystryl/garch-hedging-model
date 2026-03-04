@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}GARCH模型套保分析平台{% endblock %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- 添加缓存破坏参数 -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ config.SECRET_KEY[:8] if config.SECRET_KEY else '1' }}">
 </head>
 <body>
     <div class="container">
@@ -17,7 +18,8 @@
         </footer>
     </div>
 
-    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <!-- 添加缓存破坏参数到脚本 -->
+    <script src="{{ url_for('static', filename='js/app.js') }}?v={{ config.SECRET_KEY[:8] if config.SECRET_KEY else '1' }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>
