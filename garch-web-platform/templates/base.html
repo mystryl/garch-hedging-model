@@ -19,7 +19,7 @@
     </div>
 
     <!-- 添加缓存破坏参数到脚本 -->
-    <script src="{{ url_for('static', filename='js/app.js') }}?v={{ config.SECRET_KEY[:8] if config.SECRET_KEY else '1' }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}?v=skip-rows-{{ config.SECRET_KEY[:4] if config.SECRET_KEY else '1' }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

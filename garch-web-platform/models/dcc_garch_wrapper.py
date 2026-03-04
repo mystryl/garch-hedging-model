@@ -12,6 +12,9 @@ from pathlib import Path
 from datetime import datetime
 import traceback
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # 非交互式后端
+import matplotlib.pyplot as plt
 
 # 添加必要的目录到路径
 # lib/ 目录用于导入 model_dcc_garch
@@ -30,7 +33,7 @@ from lib.dcc_garch_analyzer import fit_dcc_garch, run_rolling_backtest, DCCGarch
 from utils.data_processor import read_excel_sheets
 
 
-def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, model_config):
+def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, model_config, skip_rows=0):
     """
     运行DCC-GARCH模型分析
 
@@ -48,6 +51,8 @@ def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, mod
         输出目录
     model_config : dict
         模型配置参数
+    skip_rows : int, optional
+        跳过的行数，默认为0
 
     Returns
     -------
@@ -94,7 +99,8 @@ def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, mod
 
         # 3. 读取和预处理数据
         print(f"\n读取工作表: {sheet_name}")
-        sheets = read_excel_sheets(data_path)
+        print(f"跳过行数: {skip_rows}")
+        sheets = read_excel_sheets(data_path, skip_rows=skip_rows)
         if sheet_name not in sheets:
             return {
                 'success': False,
@@ -126,11 +132,17 @@ def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, mod
                 'error': f'期货列不存在: {future_col}'
             }
 
-        # 数据预处理
+        # 数据预处理 - 先转换为数值类型，处理可能的字符串或混合类型
+        spot_data = pd.to_numeric(df[spot_col], errors='coerce')
+        futures_data = pd.to_numeric(df[future_col], errors='coerce')
+
         data = pd.DataFrame({
-            'spot': df[spot_col].values,
-            'futures': df[future_col].values
+            'spot': spot_data,
+            'futures': futures_data
         })
+
+        print(f"数据类型: spot={data['spot'].dtype}, futures={data['futures'].dtype}")
+        print(f"有效数据量: {len(data.dropna())}/{len(data)}")
 
         # 添加日期列
         if date_col and date_col in df.columns:
@@ -208,9 +220,14 @@ def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, mod
         h_actual = model_results.get('h_actual', [])
         h_mean = float(pd.Series(h_actual).mean()) if len(h_actual) > 0 else 0.0
         h_std = float(pd.Series(h_actual).std()) if len(h_actual) > 0 else 0.0
+        h_min = float(pd.Series(h_actual).min()) if len(h_actual) > 0 else 0.0
+        h_max = float(pd.Series(h_actual).max()) if len(h_actual) > 0 else 0.0
+        h_median = float(pd.Series(h_actual).median()) if len(h_actual) > 0 else 0.0
 
         rho_t = model_results.get('rho_t', [])
         rho_mean = float(pd.Series(rho_t).mean()) if len(rho_t) > 0 else 0.0
+        rho_min = float(pd.Series(rho_t).min()) if len(rho_t) > 0 else 0.0
+        rho_max = float(pd.Series(rho_t).max()) if len(rho_t) > 0 else 0.0
 
         # 计算套保效果
         r_s = data['r_s'].values
@@ -232,13 +249,23 @@ def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, mod
             'timestamp': timestamp
         }
 
+        # 5.1 生成图表
+        _generate_charts(data, model_results, run_output_dir)
+
         # 6. 生成HTML报告
         report_html = _create_html_report(
             run_output_dir,
             data,
             model_results,
             summary,
-            column_mapping
+            column_mapping,
+            h_mean=h_mean,
+            h_std=h_std,
+            h_min=h_min,
+            h_max=h_max,
+            h_median=h_median,
+            rho_min=rho_min,
+            rho_max=rho_max
         )
 
         print(f"\n✓ 分析完成!")
@@ -265,18 +292,10 @@ def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, mod
         }
 
 
-def _create_html_report(output_dir, data, model_results, summary, column_mapping):
+def _create_html_report(output_dir, data, model_results, summary, column_mapping,
+                       h_mean=None, h_std=None, h_min=None, h_max=None, h_median=None,
+                       rho_min=None, rho_max=None):
     """创建HTML报告"""
-    h_actual = model_results.get('h_actual', [])
-    rho_t = model_results.get('rho_t', [])
-
-    # 统计信息
-    h_min = float(np.min(h_actual)) if len(h_actual) > 0 else 0.0
-    h_max = float(np.max(h_actual)) if len(h_actual) > 0 else 0.0
-    h_median = float(np.median(h_actual)) if len(h_actual) > 0 else 0.0
-
-    rho_min = float(np.min(rho_t)) if len(rho_t) > 0 else 0.0
-    rho_max = float(np.max(rho_t)) if len(rho_t) > 0 else 0.0
 
     html_content = f"""
 <!DOCTYPE html>
@@ -380,6 +399,28 @@ def _create_html_report(output_dir, data, model_results, summary, column_mapping
         </div>
 
         <div class="section">
+            <h2>📈 数据可视化</h2>
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
+                <div>
+                    <h3>动态套保比例</h3>
+                    <img src="figures/1_hedge_ratio.png" alt="Dynamic Hedge Ratio" style="width: 100%; border-radius: 8px;">
+                </div>
+                <div>
+                    <h3>动态相关系数</h3>
+                    <img src="figures/2_correlation.png" alt="Dynamic Correlation" style="width: 100%; border-radius: 8px;">
+                </div>
+                <div>
+                    <h3>套保比例分布</h3>
+                    <img src="figures/3_hedge_ratio_dist.png" alt="Hedge Ratio Distribution" style="width: 100%; border-radius: 8px;">
+                </div>
+                <div>
+                    <h3>相关系数分布</h3>
+                    <img src="figures/4_correlation_dist.png" alt="Correlation Distribution" style="width: 100%; border-radius: 8px;">
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
             <h2>模型配置</h2>
             <table>
                 <tr><th>参数</th><th>值</th></tr>
@@ -442,3 +483,73 @@ def _create_html_report(output_dir, data, model_results, summary, column_mapping
         f.write(html_content)
 
     return report_path
+
+
+def _generate_charts(data, model_results, output_dir):
+    """
+    生成 DCC-GARCH 图表
+
+    Parameters:
+    -----------
+    data : pd.DataFrame
+        数据
+    model_results : dict
+        模型结果
+    output_dir : Path
+        输出目录
+    """
+    charts_dir = output_dir / 'figures'
+    charts_dir.mkdir(exist_ok=True)
+
+    # 设置中文字体
+    plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'SimHei', 'DejaVu Sans']
+    plt.rcParams['axes.unicode_minus'] = False
+
+    h_actual = model_results.get('h_actual', [])
+    rho_t = model_results.get('rho_t', [])
+
+    # 图表1：动态套保比例
+    fig, ax = plt.subplots(figsize=(12, 5))
+    ax.plot(h_actual, linewidth=1.5, color='#e74c3c')
+    ax.set_title('Dynamic Hedge Ratio (DCC-GARCH)', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Time', fontsize=12)
+    ax.set_ylabel('Hedge Ratio', fontsize=12)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(charts_dir / '1_hedge_ratio.png', dpi=150, bbox_inches='tight')
+    plt.close()
+
+    # 图表2：动态相关系数
+    fig, ax = plt.subplots(figsize=(12, 5))
+    ax.plot(rho_t, linewidth=1.5, color='#3498db')
+    ax.set_title('Dynamic Conditional Correlation', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Time', fontsize=12)
+    ax.set_ylabel('Correlation', fontsize=12)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(charts_dir / '2_correlation.png', dpi=150, bbox_inches='tight')
+    plt.close()
+
+    # 图表3：套保比例分布
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.hist(h_actual, bins=50, color='#e74c3c', alpha=0.7, edgecolor='black')
+    ax.set_title('Hedge Ratio Distribution', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Hedge Ratio', fontsize=12)
+    ax.set_ylabel('Frequency', fontsize=12)
+    ax.grid(True, alpha=0.3, axis='y')
+    plt.tight_layout()
+    plt.savefig(charts_dir / '3_hedge_ratio_dist.png', dpi=150, bbox_inches='tight')
+    plt.close()
+
+    # 图表4：相关系数分布
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.hist(rho_t, bins=50, color='#3498db', alpha=0.7, edgecolor='black')
+    ax.set_title('Correlation Distribution', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Correlation', fontsize=12)
+    ax.set_ylabel('Frequency', fontsize=12)
+    ax.grid(True, alpha=0.3, axis='y')
+    plt.tight_layout()
+    plt.savefig(charts_dir / '4_correlation_dist.png', dpi=150, bbox_inches='tight')
+    plt.close()
+
+    print(f"✓ 图表已保存到: {charts_dir}")

@@ -12,6 +12,9 @@ from pathlib import Path
 from datetime import datetime
 import traceback
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # 非交互式后端
+import matplotlib.pyplot as plt
 
 # 添加必要的目录到路径
 # lib/ 目录用于导入 model_ecm_garch
@@ -30,7 +33,7 @@ from lib.ecm_garch_analyzer import fit_ecm_garch, run_rolling_backtest, ECMGarch
 from utils.data_processor import read_excel_sheets
 
 
-def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, model_config):
+def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, model_config, skip_rows=0):
     """
     运行ECM-GARCH模型分析
 
@@ -48,6 +51,8 @@ def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, mod
         输出目录
     model_config : dict
         模型配置参数
+    skip_rows : int, optional
+        跳过的行数，默认为0
 
     Returns
     -------
@@ -94,7 +99,8 @@ def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, mod
 
         # 3. 读取和预处理数据
         print(f"\n读取工作表: {sheet_name}")
-        sheets = read_excel_sheets(data_path)
+        print(f"跳过行数: {skip_rows}")
+        sheets = read_excel_sheets(data_path, skip_rows=skip_rows)
         if sheet_name not in sheets:
             return {
                 'success': False,
@@ -126,11 +132,17 @@ def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, mod
                 'error': f'期货列不存在: {future_col}'
             }
 
-        # 数据预处理
+        # 数据预处理 - 先转换为数值类型，处理可能的字符串或混合类型
+        spot_data = pd.to_numeric(df[spot_col], errors='coerce')
+        futures_data = pd.to_numeric(df[future_col], errors='coerce')
+
         data = pd.DataFrame({
-            'spot': df[spot_col].values,
-            'futures': df[future_col].values
+            'spot': spot_data,
+            'futures': futures_data
         })
+
+        print(f"数据类型: spot={data['spot'].dtype}, futures={data['futures'].dtype}")
+        print(f"有效数据量: {len(data.dropna())}/{len(data)}")
 
         # 添加日期列
         if date_col and date_col in df.columns:
@@ -178,9 +190,21 @@ def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, mod
                   f"window_days={config.window_days}, "
                   f"seed={'随机' if config.backtest_seed is None else config.backtest_seed}")
 
+        # 准备 ECM-GARCH 需要的数据格式（需要价格数据 price_s, price_f）
+        # data 当前有 spot, futures, r_s, r_f 列
+        # 从原始价格重构（反推回去）或直接使用 spot 和 futures
+        model_input_data = pd.DataFrame({
+            'price_s': data['spot'].values,
+            'price_f': data['futures'].values
+        })
+
+        # 如果有日期列，添加进去
+        if 'date' in data.columns:
+            model_input_data['date'] = data['date']
+
         # 拟合模型
         model_results = fit_ecm_garch(
-            data,
+            model_input_data,  # 使用包含 price_s, price_f 的数据
             output_dir=config.output_dir,
             coint_window=config.coint_window,
             coupling_method=config.coupling_method,
@@ -208,6 +232,9 @@ def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, mod
         h_actual = model_results.get('h_actual', [])
         h_mean = float(pd.Series(h_actual).mean()) if len(h_actual) > 0 else 0.0
         h_std = float(pd.Series(h_actual).std()) if len(h_actual) > 0 else 0.0
+        h_min = float(pd.Series(h_actual).min()) if len(h_actual) > 0 else 0.0
+        h_max = float(pd.Series(h_actual).max()) if len(h_actual) > 0 else 0.0
+        h_median = float(pd.Series(h_actual).median()) if len(h_actual) > 0 else 0.0
 
         ecm_params = model_results.get('ecm_params', {})
         h_ecm_base = ecm_params.get('h_ecm', 0.0)
@@ -235,13 +262,21 @@ def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, mod
             'timestamp': timestamp
         }
 
+        # 5.1 生成图表
+        _generate_charts(data, model_results, run_output_dir)
+
         # 6. 生成HTML报告
         report_html = _create_html_report(
             run_output_dir,
             data,
             model_results,
             summary,
-            column_mapping
+            column_mapping,
+            h_mean=h_mean,
+            h_std=h_std,
+            h_min=h_min,
+            h_max=h_max,
+            h_median=h_median
         )
 
         print(f"\n✓ 分析完成!")
@@ -269,15 +304,10 @@ def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, mod
         }
 
 
-def _create_html_report(output_dir, data, model_results, summary, column_mapping):
+def _create_html_report(output_dir, data, model_results, summary, column_mapping,
+                       h_mean=None, h_std=None, h_min=None, h_max=None, h_median=None):
     """创建HTML报告"""
-    h_actual = model_results.get('h_actual', [])
     ect = model_results.get('ect', [])
-
-    # 统计信息
-    h_min = float(np.min(h_actual)) if len(h_actual) > 0 else 0.0
-    h_max = float(np.max(h_actual)) if len(h_actual) > 0 else 0.0
-    h_median = float(np.median(h_actual)) if len(h_actual) > 0 else 0.0
 
     ect_mean = float(np.nanmean(ect)) if len(ect) > 0 else 0.0
     ect_std = float(np.nanstd(ect)) if len(ect) > 0 else 0.0
@@ -402,6 +432,32 @@ def _create_html_report(output_dir, data, model_results, summary, column_mapping
         </div>
 
         <div class="section">
+            <h2>📈 数据可视化</h2>
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
+                <div>
+                    <h3>动态套保比例</h3>
+                    <img src="figures/1_hedge_ratio.png" alt="Dynamic Hedge Ratio" style="width: 100%; border-radius: 8px;">
+                </div>
+                <div>
+                    <h3>套保比例分布</h3>
+                    <img src="figures/2_hedge_ratio_dist.png" alt="Hedge Ratio Distribution" style="width: 100%; border-radius: 8px;">
+                </div>
+                <div>
+                    <h3>套保比例箱线图</h3>
+                    <img src="figures/3_hedge_ratio_boxplot.png" alt="Hedge Ratio Box Plot" style="width: 100%; border-radius: 8px;">
+                </div>
+                <div>
+                    <h3>套保比例滚动统计</h3>
+                    <img src="figures/4_hedge_ratio_rolling.png" alt="Hedge Ratio Rolling Statistics" style="width: 100%; border-radius: 8px;">
+                </div>
+            </div>
+            <div style="margin-top: 20px;">
+                <h3>误差修正项</h3>
+                <img src="figures/5_ect.png" alt="Error Correction Term" style="width: 100%; border-radius: 8px;">
+            </div>
+        </div>
+
+        <div class="section">
             <h2>模型配置</h2>
             <table>
                 <tr><th>参数</th><th>值</th></tr>
@@ -489,3 +545,97 @@ def _create_html_report(output_dir, data, model_results, summary, column_mapping
         f.write(html_content)
 
     return report_path
+
+
+def _generate_charts(data, model_results, output_dir):
+    """
+    生成 ECM-GARCH 图表
+
+    Parameters:
+    -----------
+    data : pd.DataFrame
+        数据
+    model_results : dict
+        模型结果
+    output_dir : Path
+        输出目录
+    """
+    charts_dir = output_dir / 'figures'
+    charts_dir.mkdir(exist_ok=True)
+
+    # 设置中文字体
+    plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'SimHei', 'DejaVu Sans']
+    plt.rcParams['axes.unicode_minus'] = False
+
+    h_actual = model_results.get('h_actual', [])
+    ect = model_results.get('ect', [])
+
+    # 图表1：动态套保比例
+    fig, ax = plt.subplots(figsize=(12, 5))
+    ax.plot(h_actual, linewidth=1.5, color='#2ecc71')
+    ax.set_title('Dynamic Hedge Ratio (ECM-GARCH)', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Time', fontsize=12)
+    ax.set_ylabel('Hedge Ratio', fontsize=12)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(charts_dir / '1_hedge_ratio.png', dpi=150, bbox_inches='tight')
+    plt.close()
+
+    # 图表2：套保比例分布
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.hist(h_actual, bins=50, color='#2ecc71', alpha=0.7, edgecolor='black')
+    ax.set_title('Hedge Ratio Distribution', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Hedge Ratio', fontsize=12)
+    ax.set_ylabel('Frequency', fontsize=12)
+    ax.grid(True, alpha=0.3, axis='y')
+    plt.tight_layout()
+    plt.savefig(charts_dir / '2_hedge_ratio_dist.png', dpi=150, bbox_inches='tight')
+    plt.close()
+
+    # 图表3：套保比例统计
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.boxplot(h_actual, vert=True)
+    ax.set_title('Hedge Ratio Box Plot', fontsize=14, fontweight='bold')
+    ax.set_ylabel('Hedge Ratio', fontsize=12)
+    ax.grid(True, alpha=0.3, axis='y')
+    plt.tight_layout()
+    plt.savefig(charts_dir / '3_hedge_ratio_boxplot.png', dpi=150, bbox_inches='tight')
+    plt.close()
+
+    # 图表4：套保比例滚动统计
+    fig, ax = plt.subplots(figsize=(12, 5))
+    if len(h_actual) > 20:
+        window = 20
+        rolling_mean = pd.Series(h_actual).rolling(window=window).mean()
+        rolling_std = pd.Series(h_actual).rolling(window=window).std()
+        ax.plot(h_actual, label='Hedge Ratio', alpha=0.5, linewidth=1)
+        ax.plot(rolling_mean, label=f'Rolling Mean ({window}d)', linewidth=2)
+        ax.fill_between(range(len(h_actual)),
+                        rolling_mean - 2*rolling_std,
+                        rolling_mean + 2*rolling_std,
+                        alpha=0.2, label=f'±2 Std Dev ({window}d)')
+    else:
+        ax.plot(h_actual, label='Hedge Ratio', linewidth=1.5)
+    ax.set_title('Hedge Ratio with Rolling Statistics', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Time', fontsize=12)
+    ax.set_ylabel('Hedge Ratio', fontsize=12)
+    ax.legend(loc='best')
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(charts_dir / '4_hedge_ratio_rolling.png', dpi=150, bbox_inches='tight')
+    plt.close()
+
+    # 图表5：误差修正项
+    if len(ect) > 0:
+        fig, ax = plt.subplots(figsize=(12, 5))
+        ax.plot(ect, linewidth=1.5, color='#e74c3c')
+        ax.axhline(y=0, color='red', linestyle='--', alpha=0.5)
+        ax.set_title('Error Correction Term (ECT)', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Time', fontsize=12)
+        ax.set_ylabel('ECT', fontsize=12)
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(charts_dir / '5_ect.png', dpi=150, bbox_inches='tight')
+        plt.close()
+
+    print(f"✓ 图表已保存到: {charts_dir}")

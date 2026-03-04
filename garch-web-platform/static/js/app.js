@@ -3,6 +3,7 @@
 // 全局状态变量
 let uploadedFile = null;
 let selectedSheet = null;
+let skipRows = 0;  // 跳过的行数
 let columnMapping = {
     spot: null,
     future: null,
@@ -204,6 +205,11 @@ async function handleFileUpload(file) {
     const formData = new FormData();
     formData.append('file', file);
 
+    // 添加跳过行数的选项
+    skipRows = parseInt(document.getElementById('skip-rows')?.value || '0');
+    formData.append('skip_rows', skipRows);
+    console.log('→ 跳过行数:', skipRows);
+
     try {
         // 发送上传请求
         const response = await fetch('/api/upload', {
@@ -223,6 +229,9 @@ async function handleFileUpload(file) {
             path: result.filepath,
             originalName: file.name
         };
+
+        // 保存跳过行数的设置
+        skipRows = result.skip_rows || 0;
 
         // 显示成功消息
         showSuccess(result.message || '文件上传成功');
@@ -447,7 +456,8 @@ async function loadSheetPreview(sheetName) {
             },
             body: JSON.stringify({
                 filepath: uploadedFile.path,
-                sheet_name: sheetName
+                sheet_name: sheetName,
+                skip_rows: skipRows
             })
         });
 
@@ -747,6 +757,7 @@ async function generateReport() {
                 column_mapping: columnMapping,
                 date_range: null,
                 model_type: modelType,
+                skip_rows: skipRows,
                 ...backtestParams  // 展开滚动回测参数
             })
         });

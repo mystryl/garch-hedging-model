@@ -41,7 +41,42 @@ def _convert_nan_to_none(obj):
         return obj
 
 
-def read_excel_sheets(filepath: str) -> Dict[str, pd.DataFrame]:
+def _clean_metadata_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    清理数据框中的元数据行（如"频度"、"指标描述"等）
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        原始数据框
+
+    Returns
+    -------
+    pd.DataFrame
+        清理后的数据框
+    """
+    if df.empty:
+        return df
+
+    # 定义需要过滤的关键词
+    filter_keywords = ['频度', '指标描述', '单位', '数据来源', '钢联数据']
+
+    # 检查第一列是否包含这些关键词
+    if len(df.columns) > 0:
+        first_col = df.iloc[:, 0].astype(str)
+        # 过滤掉包含关键词的行
+        mask = ~first_col.str.contains('|'.join(filter_keywords), na=False)
+        df_cleaned = df[mask].copy()
+        df_cleaned = df_cleaned.reset_index(drop=True)
+
+        if len(df_cleaned) < len(df):
+            logger.info(f"清理了 {len(df) - len(df_cleaned)} 行元数据")
+            return df_cleaned
+
+    return df
+
+
+def read_excel_sheets(filepath: str, skip_rows: int = 0) -> Dict[str, pd.DataFrame]:
     """
     读取Excel文件中的所有工作表
 
@@ -49,6 +84,8 @@ def read_excel_sheets(filepath: str) -> Dict[str, pd.DataFrame]:
     ----------
     filepath : str
         Excel文件路径
+    skip_rows : int, optional
+        跳过的行数，默认为0（不跳过）
 
     Returns
     -------
@@ -62,7 +99,19 @@ def read_excel_sheets(filepath: str) -> Dict[str, pd.DataFrame]:
 
         for sheet_name in excel_file.sheet_names:
             try:
-                df = pd.read_excel(filepath, sheet_name=sheet_name)
+                if skip_rows > 0:
+                    # 跳过前N行：使用第skip_rows行作为表头
+                    # header参数指定哪一行作为列名（0-indexed）
+                    df = pd.read_excel(filepath, sheet_name=sheet_name, header=skip_rows)
+                    logger.info(f"工作表 {sheet_name}: 跳过前{skip_rows}行，使用第{skip_rows + 1}行作为表头")
+                else:
+                    # 不跳过：第一行作为表头
+                    df = pd.read_excel(filepath, sheet_name=sheet_name, header=0)
+                    logger.info(f"工作表 {sheet_name}: 使用第一行作为表头")
+
+                # 清理元数据行
+                df = _clean_metadata_rows(df)
+
                 sheets[sheet_name] = df
                 logger.info(f"成功读取工作表: {sheet_name}, 形状: {df.shape}")
             except Exception as e:
@@ -76,7 +125,7 @@ def read_excel_sheets(filepath: str) -> Dict[str, pd.DataFrame]:
         raise
 
 
-def preview_sheet(filepath: str, sheet_name: str, nrows: int = 10) -> Dict[str, Any]:
+def preview_sheet(filepath: str, sheet_name: str, nrows: int = 10, skip_rows: int = 0) -> Dict[str, Any]:
     """
     预览工作表数据，包括数据概览和日期范围检测
 
@@ -88,6 +137,8 @@ def preview_sheet(filepath: str, sheet_name: str, nrows: int = 10) -> Dict[str, 
         工作表名称
     nrows : int, optional
         预览行数，默认为10
+    skip_rows : int, optional
+        跳过的行数，默认为0
 
     Returns
     -------
@@ -95,16 +146,36 @@ def preview_sheet(filepath: str, sheet_name: str, nrows: int = 10) -> Dict[str, 
         包含预览数据和元信息的字典
     """
     try:
-        # 读取数据
-        df = pd.read_excel(filepath, sheet_name=sheet_name, nrows=nrows)
+        if skip_rows > 0:
+            # 跳过前N行：使用header参数指定列名行
+            df = pd.read_excel(filepath, sheet_name=sheet_name, header=skip_rows, nrows=nrows * 2)
+            full_df = pd.read_excel(filepath, sheet_name=sheet_name, header=skip_rows)
+            logger.info(f"预览工作表 {sheet_name}: 跳过前{skip_rows}行")
+        else:
+            # 不跳过：正常读取
+            df = pd.read_excel(filepath, sheet_name=sheet_name, nrows=nrows)
+            full_df = pd.read_excel(filepath, sheet_name=sheet_name)
+            logger.info(f"预览工作表 {sheet_name}: 使用第一行作为表头")
 
-        # 读取完整数据以检测日期范围
-        full_df = pd.read_excel(filepath, sheet_name=sheet_name)
+        # 清理元数据行
+        df = _clean_metadata_rows(df)
+        full_df = _clean_metadata_rows(full_df)
 
-        # 检测日期列
+        # 预览数据只显示前nrows行
+        df = df.head(nrows)
+
+        # 检测日期列（用于 date_range 和返回给前端）
         date_columns = _detect_date_columns(full_df)
 
-        # 获取日期范围
+        # 格式化第一列为 yyyy/mm/dd 格式（仅对预览数据）
+        # 假设第一列始终是日期列
+        if len(df.columns) > 0:
+            first_col = df.columns[0]
+            df[first_col] = pd.to_datetime(df[first_col], errors='coerce').dt.strftime('%Y/%m/%d')
+            # 将 NaT（无效日期）转换为 None
+            df[first_col] = df[first_col].replace('NaT', None)
+
+        # 获取日期范围（格式：yyyy/mm/dd）
         date_range = None
         if date_columns:
             primary_date_col = date_columns[0]
@@ -113,8 +184,8 @@ def preview_sheet(filepath: str, sheet_name: str, nrows: int = 10) -> Dict[str, 
                 valid_dates = dates.dropna()
                 if not valid_dates.empty:
                     date_range = {
-                        'start': valid_dates.min().strftime('%Y-%m-%d'),
-                        'end': valid_dates.max().strftime('%Y-%m-%d'),
+                        'start': valid_dates.min().strftime('%Y/%m/%d'),
+                        'end': valid_dates.max().strftime('%Y/%m/%d'),
                         'count': len(valid_dates)
                     }
             except Exception as e:
@@ -129,7 +200,8 @@ def preview_sheet(filepath: str, sheet_name: str, nrows: int = 10) -> Dict[str, 
             'preview_data': _convert_nan_to_none(df.to_dict('records')),
             'date_columns': date_columns,
             'date_range': date_range,
-            'has_data': not df.empty
+            'has_data': not df.empty,
+            'skipped_rows': skip_rows
         }
 
         return preview_info
@@ -176,7 +248,7 @@ def _detect_date_columns(df: pd.DataFrame) -> List[str]:
     return date_columns
 
 
-def get_all_sheets_info(filepath: str) -> List[Dict[str, Any]]:
+def get_all_sheets_info(filepath: str, skip_rows: int = 0) -> List[Dict[str, Any]]:
     """
     获取所有工作表的信息
 
@@ -184,6 +256,8 @@ def get_all_sheets_info(filepath: str) -> List[Dict[str, Any]]:
     ----------
     filepath : str
         Excel文件路径
+    skip_rows : int, optional
+        跳过的行数，默认为0
 
     Returns
     -------
@@ -196,7 +270,7 @@ def get_all_sheets_info(filepath: str) -> List[Dict[str, Any]]:
 
         for sheet_name in excel_file.sheet_names:
             try:
-                preview = preview_sheet(filepath, sheet_name, nrows=5)
+                preview = preview_sheet(filepath, sheet_name, nrows=5, skip_rows=skip_rows)
                 sheets_info.append({
                     'name': sheet_name,
                     'row_count': preview['shape'][0],

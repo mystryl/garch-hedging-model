@@ -5,6 +5,23 @@
 {% block content %}
 <div class="card">
     <h2>步骤1: 上传数据文件</h2>
+    <div class="form-group" style="margin-bottom: 15px;">
+        <label style="display: flex; align-items: center; cursor: pointer;">
+            <span style="margin-right: 10px;">跳过前</span>
+            <select id="skip-rows" class="form-control" style="width: 80px; display: inline-block; margin-right: 10px;">
+                <option value="0">0</option>
+                <option value="1" selected>1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+            </select>
+            <span>行（第一行是表头选0，前面有多行标题选择跳过行数）</span>
+        </label>
+        <p style="font-size: 12px; color: #7f8c8d; margin: 5px 0 0 0;">
+            提示：如果Excel前几行是标题、说明等信息，请设置跳过行数
+        </p>
+    </div>
     <div class="upload-area" id="upload-area">
         <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -14,7 +31,7 @@
         <p>拖拽Excel文件到此处，或点击选择文件</p>
         <p style="font-size: 12px; color: #7f8c8d;">支持 .xlsx, .xls 格式，最大50MB</p>
         <input type="file" id="file-input" accept=".xlsx,.xls" style="display: none;">
-        <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">选择文件</button>
+        <button class="btn btn-primary" onclick="event.stopPropagation(); document.getElementById('file-input').click()">选择文件</button>
     </div>
 </div>
 

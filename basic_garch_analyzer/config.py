@@ -27,7 +27,8 @@ class ModelConfig:
     enable_rolling_backtest: bool = True  # 启用滚动回测（替代全样本回测）
     n_periods: int = 6                    # 回测周期数
     window_days: int = 90                 # 每个周期天数
-    backtest_seed: int = 42               # 随机种子
+    min_gap_days: int = 180               # 起始日期最小间隔
+    backtest_seed: Optional[int] = None   # 随机种子（None表示随机，整数为固定值）
 
     # 输出配置
     output_dir: str = 'outputs'

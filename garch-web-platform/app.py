@@ -75,6 +75,9 @@ def upload_file():
     if not allowed_file(file.filename):
         return jsonify({'error': '不支持的文件格式，请上传Excel文件 (.xlsx, .xls)'}), 400
 
+    # 获取跳过行数的参数
+    skip_rows = int(request.form.get('skip_rows', '0'))
+
     try:
         # 保存文件
         original_filename = secure_filename(file.filename)
@@ -86,8 +89,8 @@ def upload_file():
 
         file.save(filepath)
 
-        # 读取所有工作表信息
-        sheets_info = get_all_sheets_info(str(filepath))
+        # 读取所有工作表信息（传递skip_rows参数）
+        sheets_info = get_all_sheets_info(str(filepath), skip_rows=skip_rows)
 
         # 推荐最佳工作表
         recommended_sheet = recommend_sheet(sheets_info)
@@ -98,6 +101,7 @@ def upload_file():
             'filepath': str(filepath),
             'sheets': sheets_info,
             'recommended_sheet': recommended_sheet,
+            'skip_rows': skip_rows,
             'message': f'成功上传文件，共找到 {len(sheets_info)} 个工作表'
         })
 
@@ -119,10 +123,11 @@ def preview_sheet_endpoint():
 
     filepath = data['filepath']
     sheet_name = data['sheet_name']
+    skip_rows = data.get('skip_rows', 0)
 
     try:
-        # 获取工作表预览数据
-        preview_data = preview_sheet(filepath, sheet_name, nrows=10)
+        # 获取工作表预览数据（传递skip_rows参数）
+        preview_data = preview_sheet(filepath, sheet_name, nrows=10, skip_rows=skip_rows)
 
         # 智能推荐列映射
         suggested_columns = suggest_columns(preview_data)
@@ -335,6 +340,7 @@ def generate_report():
     column_mapping = data.get('column_mapping')
     date_range = data.get('date_range')
     model_type = data.get('model_type')
+    skip_rows = data.get('skip_rows', 0)  # 获取跳过行数参数，默认为0
 
     # 提取滚动回测参数（新增）
     enable_rolling_backtest = data.get('enable_rolling_backtest', False)
@@ -396,6 +402,7 @@ def generate_report():
             sheet_name=sheet_name,
             column_mapping=column_mapping,
             date_range=date_range,
+            skip_rows=skip_rows,
             output_dir=str(OUTPUT_DIR / 'web_reports'),
             model_config=model_config
         )

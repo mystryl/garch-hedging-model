@@ -23,9 +23,10 @@ if worktree_root_str not in sys.path:
 
 from basic_garch_analyzer import run_analysis
 from basic_garch_analyzer.config import ModelConfig
+from utils.data_processor import read_excel_sheets
 
 
-def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, model_config):
+def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, model_config, skip_rows=0):
     """
     运行Basic GARCH模型分析
 
@@ -43,6 +44,8 @@ def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, mod
         输出目录
     model_config : dict
         模型配置参数
+    skip_rows : int, optional
+        跳过的行数，默认为0
 
     Returns
     -------
@@ -109,18 +112,77 @@ def run_model(data_path, sheet_name, column_mapping, date_range, output_dir, mod
                   f"min_gap_days={config.min_gap_days}, "
                   f"seed={'随机' if config.backtest_seed is None else config.backtest_seed}")
 
-        # 4. 运行分析
+        # 4. 预加载数据并验证列名
+        print("\n预加载数据...")
+        print(f"跳过行数: {skip_rows}")
+
+        # 使用统一的数据加载方法（会自动清理元数据行）
+        sheets = read_excel_sheets(data_path, skip_rows=skip_rows)
+
+        # 验证工作表存在
+        if sheet_name not in sheets:
+            # 尝试使用第一个工作表
+            sheet_name = list(sheets.keys())[0]
+            print(f"⚠ 工作表不存在，使用第一个工作表: {sheet_name}")
+
+        df = sheets[sheet_name]
+
+        # 验证列存在
+        spot_col = column_mapping['spot']
+        future_col = column_mapping['future']
+        date_col = column_mapping.get('date')
+
+        if spot_col not in df.columns:
+            return {
+                'success': False,
+                'report_path': None,
+                'summary': None,
+                'error': f'现货列不存在: {spot_col}'
+            }
+        if future_col not in df.columns:
+            return {
+                'success': False,
+                'report_path': None,
+                'summary': None,
+                'error': f'期货列不存在: {future_col}'
+            }
+
+        # 5. 运行分析
         print("\n开始运行Basic GARCH分析...")
         result = run_analysis(
             excel_path=data_path,
-            spot_col=column_mapping['spot'],
-            futures_col=column_mapping['future'],
-            date_col=column_mapping.get('date'),
+            spot_col=spot_col,
+            futures_col=future_col,
+            date_col=date_col,
+            skip_rows=skip_rows,
             config=config,
             interactive=False
         )
 
-        # 5. 提取摘要信息
+        # 5.1 生成图表
+        print("\n生成图表...")
+        from basic_garch_analyzer import report_generator
+
+        # 创建图表目录
+        figures_dir = run_output_dir / 'figures'
+        figures_dir.mkdir(exist_ok=True)
+
+        # 获取数据和模型结果
+        data = result.get('data')
+        model_results = result.get('model_results')
+
+        # 生成基础图表
+        if data is not None and model_results is not None:
+            try:
+                report_generator.plot_price_series(data, str(figures_dir / '1_price_series.png'))
+                report_generator.plot_returns(data, str(figures_dir / '2_returns.png'))
+                report_generator.plot_hedge_ratio(data, model_results, str(figures_dir / '3_hedge_ratio.png'))
+                report_generator.plot_volatility(data, model_results, str(figures_dir / '4_volatility.png'))
+                print(f"✓ 图表已保存到: {figures_dir}")
+            except Exception as e:
+                print(f"⚠ 图表生成部分失败: {e}")
+
+        # 5.2 提取摘要信息
         model_results = result.get('model_results', {})
         metrics = result.get('metrics', {})
 
@@ -279,6 +341,28 @@ def _create_simple_report(output_dir, result, summary, column_mapping):
             <div class="metric">
                 <div class="metric-label">最大回撤 (套保后)</div>
                 <div class="metric-value">{summary['max_dd_hedged']:.2%}</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>📈 数据可视化</h2>
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
+                <div>
+                    <h3>价格走势</h3>
+                    <img src="figures/1_price_series.png" alt="价格走势图" style="width: 100%; border-radius: 8px;">
+                </div>
+                <div>
+                    <h3>收益率</h3>
+                    <img src="figures/2_returns.png" alt="收益率图" style="width: 100%; border-radius: 8px;">
+                </div>
+                <div>
+                    <h3>动态套保比例</h3>
+                    <img src="figures/3_hedge_ratio.png" alt="套保比例图" style="width: 100%; border-radius: 8px;">
+                </div>
+                <div>
+                    <h3>波动率</h3>
+                    <img src="figures/4_volatility.png" alt="波动率图" style="width: 100%; border-radius: 8px;">
+                </div>
             </div>
         </div>
 
