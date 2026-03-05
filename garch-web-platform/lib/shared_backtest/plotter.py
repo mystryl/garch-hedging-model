@@ -107,11 +107,11 @@ def plot_rolling_nav_curve(results: Dict, output_path: str):
             # 创建次坐标轴（用于套保比例）
             ax2 = ax.twinx()
 
-            # 绘制未套保和套保后曲线（主坐标轴）
-            ax.plot(result['dates'], result['cumulative_unhedged'],
-                    label='未套保', linewidth=2, alpha=0.7, color='red')
+            # 绘制传统套保（h=1）和动态套保后曲线（主坐标轴）
+            ax.plot(result['dates'], result['cumulative_traditional'],
+                    label='传统套保 (h=1)', linewidth=2, alpha=0.7, color='red')
             ax.plot(result['dates'], result['cumulative_hedged'],
-                    label='套保后', linewidth=2, alpha=0.8, color='green')
+                    label='动态套保 (GARCH)', linewidth=2, alpha=0.8, color='green')
 
             # 绘制套保比例曲线（次坐标轴）
             ax2.plot(result['dates'], result['hedge_ratios'],
@@ -120,8 +120,8 @@ def plot_rolling_nav_curve(results: Dict, output_path: str):
 
             # 标题包含周期信息和收益率
             title = (f"周期 {i+1}: {result['start_date'].date()} - {result['end_date'].date()}\n"
-                     f"收益率: 未套保={result['total_return_unhedged']:.2%}, "
-                     f"套保={result['total_return_hedged']:.2%}, "
+                     f"收益率: 传统套保={result['total_return_traditional']:.2%}, "
+                     f"动态套保={result['total_return_hedged']:.2%}, "
                      f"方差降低={result['variance_reduction']:.1%}")
             ax.set_title(title, fontsize=9, fontweight='bold', fontproperties=CHINESE_FONT)
 
@@ -283,7 +283,7 @@ def plot_period_comparison(results: Dict, output_path: str):
     periods = [f"周期{i+1}\n{r['start_date'].month}/{r['start_date'].day}"
                for i, r in enumerate(period_results)]
 
-    returns_unhedged = [r['total_return_unhedged'] for r in period_results]
+    returns_traditional = [r['total_return_traditional'] for r in period_results]
     returns_hedged = [r['total_return_hedged'] for r in period_results]
     variance_reduction = [r['variance_reduction'] for r in period_results]
     max_dd_hedged = [r['max_dd_hedged'] for r in period_results]
@@ -295,9 +295,9 @@ def plot_period_comparison(results: Dict, output_path: str):
     ax1 = axes[0, 0]
     x = np.arange(len(periods))
     width = 0.35
-    bars1 = ax1.bar(x - width/2, returns_unhedged, width, label='未套保',
+    bars1 = ax1.bar(x - width/2, returns_traditional, width, label='传统套保 (h=1)',
                    color='red', alpha=0.7, edgecolor='black')
-    bars2 = ax1.bar(x + width/2, returns_hedged, width, label='套保后',
+    bars2 = ax1.bar(x + width/2, returns_hedged, width, label='动态套保 (GARCH)',
                    color='green', alpha=0.7, edgecolor='black')
     ax1.set_ylabel('收益率', fontproperties=CHINESE_FONT)
     ax1.set_title('各周期收益率对比', fontproperties=CHINESE_FONT, fontweight='bold')
@@ -353,10 +353,10 @@ def plot_period_comparison(results: Dict, output_path: str):
 
     table_data = [
         ['指标', '平均值'],
-        ['平均收益率（未套保）', f"{results['avg_return_unhedged']:.2%}"],
-        ['平均收益率（套保后）', f"{results['avg_return_hedged']:.2%}"],
+        ['平均收益率（传统套保 h=1）', f"{results['avg_return_traditional']:.2%}"],
+        ['平均收益率（动态套保 GARCH）', f"{results['avg_return_hedged']:.2%}"],
         ['平均方差降低', f"{results['avg_variance_reduction']:.2%}"],
-        ['平均最大回撤（套保后）', f"{results['avg_max_dd_hedged']:.2%}"],
+        ['平均最大回撤（动态套保）', f"{results['avg_max_dd_hedged']:.2%}"],
         ['', ''],
         ['回测周期数', f"{results['n_periods']}"],
         ['每个周期天数', f"{results['window_days']}"],

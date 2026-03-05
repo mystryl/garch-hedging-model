@@ -8,6 +8,12 @@ import os
 import sys
 from pathlib import Path
 
+# ============================================================
+# 重要：在导入任何使用 matplotlib 的模块之前设置后端
+# ============================================================
+import matplotlib
+matplotlib.use('agg')  # 使用非交互式后端，避免多线程问题
+
 # 添加lib目录到Python路径，以便导入模块
 LIB_DIR = Path(__file__).parent / 'lib'
 sys.path.insert(0, str(LIB_DIR))
@@ -42,6 +48,105 @@ def allowed_file(filename):
     """检查文件扩展名是否允许"""
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def extract_commodity_name(filepath: str, column_mapping: dict) -> str:
+    """
+    从文件路径或列映射中提取品种名称
+
+    优先级：
+    1. 文件名（如 meg_full_data.xlsx → MEG）
+    2. 现货列名（如 现货价格 → 通用）
+
+    Args:
+        filepath: 上传文件的路径
+        column_mapping: 列名映射字典
+
+    Returns:
+        品种名称，如 'MEG', 'PP', 'PE', 'PVC', 'PTA'，无法识别返回 '通用'
+    """
+    import re
+    from pathlib import Path
+
+    # 尝试从文件名提取
+    filename = Path(filepath).stem
+    # 匹配常见品种名称模式
+    commodity_patterns = {
+        r'meg': 'MEG',
+        r'pp': 'PP',
+        r'pe': 'PE',
+        r'pvc': 'PVC',
+        r'pta': 'PTA',
+    }
+
+    for pattern, name in commodity_patterns.items():
+        if pattern in filename.lower():
+            return name
+
+    # 如果无法识别，返回 "通用"
+    return '通用'
+
+
+def calculate_cleaning_stats(filepath: str, sheet_name: str, skip_rows: int = 0) -> dict:
+    """
+    计算数据清洗统计信息
+
+    Parameters
+    ----------
+    filepath : str
+        Excel 文件路径
+    sheet_name : str
+        工作表名称
+    skip_rows : int, optional
+        跳过的行数，默认为 0
+
+    Returns
+    -------
+    dict
+        清洗统计信息
+    """
+    from utils.data_processor import _clean_metadata_rows
+    import pandas as pd
+
+    # 读取原始数据
+    if skip_rows > 0:
+        df = pd.read_excel(filepath, sheet_name=sheet_name, header=skip_rows)
+    else:
+        df = pd.read_excel(filepath, sheet_name=sheet_name)
+
+    original_rows = len(df)
+
+    # 清理元数据行
+    df_cleaned = _clean_metadata_rows(df)
+    if df_cleaned is not None:
+        df = df_cleaned
+
+    # 检测日期范围
+    date_range = {'start': 'N/A', 'end': 'N/A'}
+    for col in df.columns:
+        try:
+            sample = df[col].dropna().head(100)
+            if sample.empty:
+                continue
+            dates = pd.to_datetime(sample, errors='coerce')
+            valid_ratio = dates.notna().sum() / len(sample)
+            if valid_ratio > 0.8:
+                valid_dates = pd.to_datetime(df[col], errors='coerce').dropna()
+                if not valid_dates.empty:
+                    date_range = {
+                        'start': valid_dates.min().strftime('%Y-%m-%d'),
+                        'end': valid_dates.max().strftime('%Y-%m-%d')
+                    }
+                break
+        except Exception:
+            continue
+
+    return {
+        'original_rows': original_rows,
+        'final_rows': len(df),
+        'date_range': date_range,
+        'skipped_rows': skip_rows
+    }
 
 
 @app.route('/')
@@ -129,13 +234,17 @@ def preview_sheet_endpoint():
         # 获取工作表预览数据（传递skip_rows参数）
         preview_data = preview_sheet(filepath, sheet_name, nrows=10, skip_rows=skip_rows)
 
+        # === 新增：计算数据清洗统计 ===
+        cleaning_stats = calculate_cleaning_stats(filepath, sheet_name, skip_rows)
+
         # 智能推荐列映射
         suggested_columns = suggest_columns(preview_data)
 
         return jsonify({
             'success': True,
             'preview': preview_data,
-            'suggested_columns': suggested_columns
+            'suggested_columns': suggested_columns,
+            'cleaning_stats': cleaning_stats  # 新增
         })
 
     except Exception as e:
@@ -416,9 +525,20 @@ def generate_report():
         report_path = Path(result['report_path'])
         output_dir = report_path.parent
 
-        # ZIP文件名
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        zip_filename = f"{model_type}_report_{timestamp}.zip"
+        # ZIP文件名：YYYYMMDD_品种_模型名.zip
+        current_date = datetime.now().strftime('%Y%m%d')
+        commodity_name = extract_commodity_name(filepath, column_mapping)
+
+        # 模型名称映射
+        MODEL_NAME_MAP = {
+            'basic_garch': 'Basic_GARCH',
+            'dcc_garch': 'DCC_GARCH',
+            'ecm_garch': 'ECM_GARCH'
+        }
+        model_display_name = MODEL_NAME_MAP.get(model_type, model_type.upper())
+
+        # 组合文件名：YYYYMMDD_品种_模型名.zip
+        zip_filename = f"{current_date}_{commodity_name}_{model_display_name}.zip"
         zip_path = OUTPUT_DIR / 'web_reports' / zip_filename
 
         # 创建ZIP文件
@@ -490,7 +610,7 @@ def download_file(filename):
 @app.route('/report')
 def view_report():
     """
-    查看HTML报告
+    查看HTML报告（动态修正图片路径）
     """
     report_path = request.args.get('path')
 
@@ -519,10 +639,52 @@ def view_report():
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
+        # === 动态修正图片路径 ===
+        # 提取报告所在目录（如 web_reports 或 20250304_MEG_Basic_GARCH）
+        report_dir = file_path.parent.name
+
+        # 将图片路径从 figures/xxx.png 改为相对于根目录的路径
+        # 使用正则表达式替换
+        import re
+        content = re.sub(
+            r'src="figures/([^"]+)"',
+            lambda m: f'src="/report-images/{report_dir}/figures/{m.group(1)}"',
+            content
+        )
+
         return content
 
     except Exception as e:
         return f'<h1>错误：无法读取报告</h1><p>{str(e)}</p>', 500
+
+
+@app.route('/report-images/<path:filename>')
+def serve_report_images(filename):
+    """
+    提供报告图片的静态文件服务
+
+    路径格式：/report-images/YYYYMMDD_品种_模型/figures/xxx.png
+    """
+    try:
+        # 安全验证
+        if '..' in filename or filename.startswith('/'):
+            return jsonify({'error': '非法路径'}), 400
+
+        # 构建完整路径
+        file_path = (OUTPUT_DIR / filename).resolve()
+        allowed_dir = OUTPUT_DIR.resolve()
+
+        # 路径安全检查
+        if not str(file_path).startswith(str(allowed_dir)):
+            return jsonify({'error': '非法路径'}), 403
+
+        if not file_path.exists():
+            return jsonify({'error': f'图片不存在: {filename}'}), 404
+
+        return send_file(file_path)
+
+    except Exception as e:
+        return jsonify({'error': f'图片加载失败: {str(e)}'}), 500
 
 
 @app.errorhandler(413)

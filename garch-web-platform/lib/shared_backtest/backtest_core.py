@@ -180,37 +180,42 @@ def run_single_period_backtest(data: pd.DataFrame, start_date: pd.Timestamp,
     r_s = period_data['r_s'].values
     r_f = period_data['r_f'].values
 
-    # 套保收益 = 现货收益/(1+税率) - 套保比例 * 期货收益
+    # 传统套保（固定 h=1，即现货:期货 = 1:1）
+    r_traditional = r_s / (1 + tax_rate) - 1.0 * r_f
+    # 动态套保（使用 GARCH 模型的时变套保比例）
     r_hedged = r_s / (1 + tax_rate) - period_h * r_f
-    r_unhedged = r_s
 
     # 计算累计收益率
-    cumulative_unhedged = np.cumprod(1 + r_unhedged)
+    cumulative_traditional = np.cumprod(1 + r_traditional)
     cumulative_hedged = np.cumprod(1 + r_hedged)
 
     # 计算回撤
     running_max = np.maximum.accumulate(cumulative_hedged)
     drawdown = (cumulative_hedged - running_max) / running_max
 
+    # 传统套保的回撤
+    running_max_traditional = np.maximum.accumulate(cumulative_traditional)
+    drawdown_traditional = (cumulative_traditional - running_max_traditional) / running_max_traditional
+
     # 计算指标
-    total_return_unhedged = cumulative_unhedged[-1] - 1
+    total_return_traditional = cumulative_traditional[-1] - 1
     total_return_hedged = cumulative_hedged[-1] - 1
 
-    annual_return_unhedged = cumulative_unhedged[-1] ** (252 / len(period_data)) - 1
+    annual_return_traditional = cumulative_traditional[-1] ** (252 / len(period_data)) - 1
     annual_return_hedged = cumulative_hedged[-1] ** (252 / len(period_data)) - 1
 
-    std_unhedged = np.std(r_unhedged)
+    std_traditional = np.std(r_traditional)
     std_hedged = np.std(r_hedged)
 
-    # 计算最大回撤（复用已计算的 cumulative_unhedged）
-    max_dd_unhedged = np.min(cumulative_unhedged / np.maximum.accumulate(cumulative_unhedged) - 1)
+    # 计算最大回撤
+    max_dd_traditional = np.min(drawdown_traditional)
     max_dd_hedged = np.min(drawdown)
 
-    sharpe_unhedged = np.mean(r_unhedged) / np.std(r_unhedged) if np.std(r_unhedged) > 0 else 0
+    sharpe_traditional = np.mean(r_traditional) / np.std(r_traditional) if np.std(r_traditional) > 0 else 0
     sharpe_hedged = np.mean(r_hedged) / np.std(r_hedged) if np.std(r_hedged) > 0 else 0
 
-    # 方差降低
-    variance_reduction = 1 - (std_hedged ** 2) / (std_unhedged ** 2)
+    # 方差降低（相对于传统套保）
+    variance_reduction = 1 - (std_hedged ** 2) / (std_traditional ** 2)
 
     # 计算该周期使用的平均套保比例
     avg_hedge_ratio = np.mean(period_h)
@@ -221,18 +226,18 @@ def run_single_period_backtest(data: pd.DataFrame, start_date: pd.Timestamp,
         'start_date': start_date,
         'end_date': period_data.iloc[-1]['date'],
         'period_days': len(period_data),
-        'total_return_unhedged': total_return_unhedged,
+        'total_return_traditional': total_return_traditional,
         'total_return_hedged': total_return_hedged,
-        'annual_return_unhedged': annual_return_unhedged,
+        'annual_return_traditional': annual_return_traditional,
         'annual_return_hedged': annual_return_hedged,
-        'std_unhedged': std_unhedged,
+        'std_traditional': std_traditional,
         'std_hedged': std_hedged,
-        'max_dd_unhedged': max_dd_unhedged,
+        'max_dd_traditional': max_dd_traditional,
         'max_dd_hedged': max_dd_hedged,
-        'sharpe_unhedged': sharpe_unhedged,
+        'sharpe_traditional': sharpe_traditional,
         'sharpe_hedged': sharpe_hedged,
         'variance_reduction': variance_reduction,
-        'cumulative_unhedged': cumulative_unhedged,
+        'cumulative_traditional': cumulative_traditional,
         'cumulative_hedged': cumulative_hedged,
         'drawdown': drawdown,
         'dates': period_data['date'].values,
@@ -317,8 +322,8 @@ def run_rolling_backtest(data: pd.DataFrame, hedge_ratios: np.ndarray,
 
         print(f"  结束日期: {result['end_date'].date()}")
         print(f"  实际天数: {result['period_days']}")
-        print(f"  未套保收益率: {result['total_return_unhedged']:.2%}")
-        print(f"  套保收益率: {result['total_return_hedged']:.2%}")
+        print(f"  传统套保收益率: {result['total_return_traditional']:.2%}")
+        print(f"  动态套保收益率: {result['total_return_hedged']:.2%}")
         print(f"  方差降低: {result['variance_reduction']:.2%}")
 
     # 汇总统计
@@ -326,21 +331,21 @@ def run_rolling_backtest(data: pd.DataFrame, hedge_ratios: np.ndarray,
     print("回测汇总")
     print(f"{'='*60}")
 
-    avg_return_unhedged = np.mean([r['total_return_unhedged'] for r in period_results])
+    avg_return_traditional = np.mean([r['total_return_traditional'] for r in period_results])
     avg_return_hedged = np.mean([r['total_return_hedged'] for r in period_results])
     avg_variance_reduction = np.mean([r['variance_reduction'] for r in period_results])
     avg_max_dd_hedged = np.mean([r['max_dd_hedged'] for r in period_results])
 
-    print(f"平均收益率（未套保）: {avg_return_unhedged:.2%}")
-    print(f"平均收益率（套保后）: {avg_return_hedged:.2%}")
+    print(f"平均收益率（传统套保 h=1）: {avg_return_traditional:.2%}")
+    print(f"平均收益率（动态套保 GARCH）: {avg_return_hedged:.2%}")
     print(f"平均方差降低: {avg_variance_reduction:.2%}")
-    print(f"平均最大回撤（套保后）: {avg_max_dd_hedged:.2%}")
+    print(f"平均最大回撤（动态套保）: {avg_max_dd_hedged:.2%}")
 
     return {
         'period_results': period_results,
         'n_periods': len(period_results),
         'window_days': window_days,
-        'avg_return_unhedged': avg_return_unhedged,
+        'avg_return_traditional': avg_return_traditional,
         'avg_return_hedged': avg_return_hedged,
         'avg_variance_reduction': avg_variance_reduction,
         'avg_max_dd_hedged': avg_max_dd_hedged

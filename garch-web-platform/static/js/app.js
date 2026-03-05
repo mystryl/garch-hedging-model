@@ -436,6 +436,51 @@ function displaySheets(sheets, recommended) {
 
 
 /**
+ * 显示数据清洗统计信息
+ * @param {Object} stats - 清洗统计信息
+ */
+function displayCleaningStats(stats) {
+    const previewSection = document.getElementById('dataPreview');
+
+    if (!previewSection) {
+        console.warn('数据预览容器未找到，无法显示清洗统计');
+        return;
+    }
+
+    // 移除已存在的清洗统计卡片（如果有的话）
+    const existingStats = document.getElementById('cleaning-stats');
+    if (existingStats) {
+        existingStats.remove();
+    }
+
+    const statsHTML = `
+        <div id="cleaning-stats" style="background-color: #f0f8ff; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #3498db;">
+            <h4 style="margin: 0 0 10px 0; color: #2c3e50;">📊 数据清洗统计</h4>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; font-size: 13px;">
+                <div>
+                    <div style="color: #7f8c8d;">原始行数</div>
+                    <div style="font-size: 16px; font-weight: bold; color: #2c3e50;">${stats.original_rows}</div>
+                </div>
+                <div>
+                    <div style="color: #7f8c8d;">有效行数</div>
+                    <div style="font-size: 16px; font-weight: bold; color: #27ae60;">${stats.final_rows}</div>
+                </div>
+                <div>
+                    <div style="color: #7f8c8d;">时间范围</div>
+                    <div style="font-size: 14px; font-weight: bold; color: #2c3e50;">${stats.date_range.start}<br>~ ${stats.date_range.end}</div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // 插入到预览区域之前
+    previewSection.insertAdjacentHTML('beforebegin', statsHTML);
+
+    console.log('数据清洗统计已显示:', stats);
+}
+
+
+/**
  * 加载工作表预览
  * @param {string} sheetName - 工作表名称
  */
@@ -469,6 +514,11 @@ async function loadSheetPreview(sheetName) {
 
         // 显示数据预览
         displayDataPreview(result.preview.preview_data);
+
+        // === 新增：显示数据清洗统计 ===
+        if (result.cleaning_stats) {
+            displayCleaningStats(result.cleaning_stats);
+        }
 
         // 显示日期范围
         if (result.preview.date_range) {
