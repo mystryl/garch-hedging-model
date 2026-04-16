@@ -59,7 +59,8 @@ def evaluate_and_report(
     results: dict,
     selected: dict,
     config,
-    output_dir: str = 'outputs'
+    output_dir: str = 'outputs',
+    restrict_to_recent_months: bool = False
 ) -> dict:
     """
     执行回测评估并生成完整报告
@@ -156,32 +157,34 @@ def evaluate_and_report(
 
     # 图1: 价格走势
     path = os.path.join(figures_dir, '1_price_series.png')
-    plot_price_series(data_aligned, path)
+    plot_price_series(data_aligned, path, restrict_to_recent_months)
     figure_paths.append(path)
 
     # 图2: 收益率分布
     path = os.path.join(figures_dir, '2_returns.png')
-    plot_returns(data_aligned, path)
+    plot_returns(data_aligned, path, restrict_to_recent_months)
     figure_paths.append(path)
 
     # 图3: 套保比例
     path = os.path.join(figures_dir, '3_hedge_ratio.png')
-    plot_hedge_ratio(data_aligned, results, path)
+    plot_hedge_ratio(data_aligned, results, path, restrict_to_recent_months)
     figure_paths.append(path)
 
     # 图4: 波动率与相关性
     path = os.path.join(figures_dir, '4_volatility.png')
-    plot_volatility(data_aligned, results, path)
+    plot_volatility(data_aligned, results, path, restrict_to_recent_months)
     figure_paths.append(path)
 
-    # 图5: 回测净值曲线
+    # 图5: 回测净值曲线（添加套保比例次坐标轴）
     path = os.path.join(figures_dir, '5_backtest_results.png')
-    plot_backtest_results(data_aligned, eval_results, path)
+    plot_backtest_results(data_aligned, eval_results, path,
+                         hedge_ratios=results.get('h_final'),
+                         restrict_to_recent_months=restrict_to_recent_months)
     figure_paths.append(path)
 
     # 图6: 回撤曲线
     path = os.path.join(figures_dir, '6_drawdown.png')
-    plot_drawdown(data_aligned, eval_results, path)
+    plot_drawdown(data_aligned, eval_results, path, restrict_to_recent_months)
     figure_paths.append(path)
 
     # 图7: 性能指标对比

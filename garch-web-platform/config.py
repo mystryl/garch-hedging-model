@@ -53,5 +53,14 @@ MODEL_CONFIG = {
         'tax_adjust': True,
         'coupling_method': 'ect-garch',
         'tax_rate': 0.13
+    },
+    'spread_arbitrage': {
+        'name': '价差套利分析',
+        'description': '两序列价差套利：ADF检验、协整检验、GARCH动态阈值回测',
+        'entry_zscore': 2.0,
+        'exit_zscore': 0.5,
+        'zscore_window': 60,
+        'max_holding_days': 60,
+        'transaction_cost': 0.0
     }
 }

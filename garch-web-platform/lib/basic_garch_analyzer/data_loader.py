@@ -295,7 +295,7 @@ def preprocess_data(df, selected, output_file=None, min_required=120):
     return data
 
 
-def load_and_preprocess(file_path, date_col=None, spot_col=None, futures_col=None,
+def load_and_preprocess(file_path, sheet_name=None, date_col=None, spot_col=None, futures_col=None,
                         skip_rows=0, output_file=None, interactive=False, min_required=120):
     """
     完整的数据加载和预处理流程
@@ -304,6 +304,8 @@ def load_and_preprocess(file_path, date_col=None, spot_col=None, futures_col=Non
     -----------
     file_path : str
         Excel 文件路径
+    sheet_name : str, int or None
+        工作表名称或索引，None 表示第一个工作表
     date_col : str or None
         日期列名
     spot_col : str or None
@@ -327,7 +329,7 @@ def load_and_preprocess(file_path, date_col=None, spot_col=None, futures_col=Non
         选择的列名
     """
     # 加载数据
-    df, available_columns = load_data_from_excel(file_path, skip_rows=skip_rows)
+    df, available_columns = load_data_from_excel(file_path, sheet_name=sheet_name, skip_rows=skip_rows)
 
     # 选择列名
     if interactive:

@@ -28,6 +28,7 @@ class ModelConfig:
     n_periods: int = 6                    # 回测周期数
     window_days: int = 90                 # 每个周期天数
     backtest_seed: int = 42               # 随机种子
+    restrict_to_recent_months: bool = False  # 图表只显示最近三个月数据
 
     # 输出配置
     output_dir: str = 'outputs'

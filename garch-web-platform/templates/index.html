@@ -101,6 +101,47 @@
                 </div>
             </label>
         </div>
+
+        <!-- DCC-GARCH 特有参数 -->
+        <div id="dcc-params" class="model-params" style="display: none; margin-top: 20px; padding: 20px; background-color: #f8f9fa; border-radius: 4px;">
+            <h4 style="color: #2c3e50; margin-bottom: 15px;">DCC-GARCH 模型参数</h4>
+            <div class="form-group">
+                <label for="dist-param">分布假设：</label>
+                <select id="dist-param" class="form-control">
+                    <option value="norm" selected>正态分布 (Norm)</option>
+                    <option value="t">t分布 (Student's t)</option>
+                </select>
+                <p style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
+                    选择收益率的分布假设，t分布对厚尾更稳健
+                </p>
+            </div>
+        </div>
+
+        <!-- ECM-GARCH 特有参数 -->
+        <div id="ecm-params" class="model-params" style="display: none; margin-top: 20px; padding: 20px; background-color: #f8f9fa; border-radius: 4px;">
+            <h4 style="color: #2c3e50; margin-bottom: 15px;">ECM-GARCH 模型参数</h4>
+            <div class="form-group">
+                <label for="coint-window-param">协整窗口大小：</label>
+                <select id="coint-window-param" class="form-control">
+                    <option value="60">60天（约2个月）</option>
+                    <option value="120" selected>120天（约4个月）</option>
+                    <option value="180">180天（约6个月）</option>
+                </select>
+                <p style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
+                    用于估计时变协整关系的滚动窗口大小
+                </p>
+            </div>
+            <div class="form-group">
+                <label for="coupling-method-param">耦合方式：</label>
+                <select id="coupling-method-param" class="form-control">
+                    <option value="ect-garch" selected>ECT-GARCH（推荐）</option>
+                    <option value="static">静态套保</option>
+                </select>
+                <p style="font-size: 12px; color: #7f8c8d; margin-top: 5px;">
+                    ECM-GARCH 耦合方式，ECT-GARCH 会考虑误差修正项对波动率的影响
+                </p>
+            </div>
+        </div>
     </div>
     <button class="btn btn-success" id="runModelBtn" style="width: 100%; font-size: 18px; padding: 15px;">
         运行模型分析
@@ -110,6 +151,30 @@
             <div class="progress-bar" id="progressBar" style="width: 0%;"></div>
         </div>
         <p id="progressText" style="text-align: center; margin-top: 10px; color: #7f8c8d;">准备中...</p>
+    </div>
+</div>
+
+<div class="card" id="chartDisplayOptions" style="display: none;">
+    <h2>步骤4.2: 图表显示选项（可选）</h2>
+
+    <div class="form-group">
+        <label style="display: flex; align-items: center; cursor: pointer;">
+            <input type="checkbox" id="restrictToRecentMonths" style="width: 20px; height: 20px; margin-right: 10px;">
+            <span>只分析最近三个月数据</span>
+        </label>
+        <p style="font-size: 12px; color: #7f8c8d; margin-top: 8px; margin-left: 30px;">
+            勾选后，所有图表仅显示最近三个月的数据，但报告指标计算仍使用全量数据
+        </p>
+    </div>
+
+    <div style="background-color: #fff3cd; padding: 15px; border-radius: 4px; border-left: 4px solid #ffc107;">
+        <h5 style="color: #856404; margin: 0 0 10px 0;">💡 图表显示说明</h5>
+        <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #2c3e50;">
+            <li style="margin-bottom: 5px;">此选项只影响图表的显示范围，不影响任何性能指标计算</li>
+            <li style="margin-bottom: 5px;">适用于所有GARCH模型（Basic、DCC、ECM）</li>
+            <li style="margin-bottom: 5px;">无论是否启用滚动回测，都可以使用此功能</li>
+            <li>让您聚焦查看最近趋势，同时保持整体分析的准确性</li>
+        </ul>
     </div>
 </div>
 

@@ -20,5 +20,8 @@
 """
 
 from .basic_garch import run_basic_garch
+from .dcc_garch import run_dcc_garch
+from .ecm_garch import run_ecm_garch
+from .spread_arbitrage import run_spread_arbitrage
 
-__all__ = ['run_basic_garch']
+__all__ = ['run_basic_garch', 'run_dcc_garch', 'run_ecm_garch', 'run_spread_arbitrage']

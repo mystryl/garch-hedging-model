@@ -1,6 +1,8 @@
 """
-报告生成模块
-生成完整的回测分析报告，包括图表和HTML报告
+ECM-GARCH 专用报告生成器
+
+保持与 Basic GARCH/DCC-GARCH 一致的视觉主题（蓝色）
+添加 ECM-GARCH 特有图表：误差修正项、协整参数时变
 """
 
 import pandas as pd
@@ -9,17 +11,20 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import matplotlib.font_manager as fm
 import warnings
+import os
 warnings.filterwarnings('ignore')
 
 # 先设置绘图风格
 sns.set_style('whitegrid')
 
-# 配置中文字体（必须在 set_style 之后）
+# 配置中文字体
 from basic_garch_analyzer.font_config import setup_chinese_font
 setup_chinese_font()
 
-# 创建全局的中文字体属性对象（从字体文件路径直接加载）
-import os
+# 导入数据过滤函数
+from basic_garch_analyzer.report_generator import filter_data_to_recent_months
+
+# 创建全局的中文字体属性对象
 font_path = '/System/Library/Fonts/Hiragino Sans GB.ttc'
 if os.path.exists(font_path):
     CHINESE_FONT = fm.FontProperties(fname=font_path)
@@ -27,105 +32,47 @@ else:
     CHINESE_FONT = None
 
 
-def filter_data_to_recent_months(data, months=3):
-    """
-    过滤数据到最近N个月（仅用于图表显示）
-    不影响指标计算
-
-    Parameters:
-    -----------
-    data : pd.DataFrame
-        包含 date 列的数据
-    months : int
-        最近N个月，默认为3
-
-    Returns:
-    --------
-    filtered_data : pd.DataFrame
-        过滤后的数据
-    cutoff_date : pd.Timestamp or None
-        截止日期
-    """
-    if 'date' not in data.columns:
-        return data, None
-
-    max_date = data['date'].max()
-    cutoff_date = max_date - pd.DateOffset(months=months)
-
-    filtered_data = data[data['date'] >= cutoff_date].copy()
-    return filtered_data, cutoff_date
-
-
 def apply_chinese_font(fig_or_ax):
-    """
-    应用中文字体到图表的所有文本元素
-
-    Parameters:
-    -----------
-    fig_or_ax : matplotlib.figure.Figure or matplotlib.axes.Axes or numpy.ndarray
-        图表对象
-    """
+    """应用中文字体到图表"""
     if CHINESE_FONT is None:
         return
 
-    # 如果传入的是 numpy ndarray (axes 数组)
     if hasattr(fig_or_ax, 'flatten') and not hasattr(fig_or_ax, 'axes'):
         axes_list = fig_or_ax.flatten()
         fig = axes_list[0].figure if len(axes_list) > 0 else None
-    # 如果传入的是 Axes
     elif hasattr(fig_or_ax, 'figure'):
         axes_list = [fig_or_ax]
         fig = fig_or_ax.figure
-    # 如果传入的是 Figure
     else:
         fig = fig_or_ax
         axes_list = fig.axes
 
-    # 应用字体到所有文本元素
     for ax in axes_list:
-        # 标题和标签
         if ax.get_title():
             ax.set_title(ax.get_title(), fontproperties=CHINESE_FONT)
         if ax.get_xlabel():
             ax.set_xlabel(ax.get_xlabel(), fontproperties=CHINESE_FONT)
         if ax.get_ylabel():
             ax.set_ylabel(ax.get_ylabel(), fontproperties=CHINESE_FONT)
-
-        # 刻度标签
         for label in ax.get_xticklabels() + ax.get_yticklabels():
             label.set_fontproperties(CHINESE_FONT)
-
-        # 图例
         legend = ax.get_legend()
         if legend:
             for text in legend.get_texts():
                 text.set_fontproperties(CHINESE_FONT)
-
-        # 注释文本
         for text in ax.texts:
             text.set_fontproperties(CHINESE_FONT)
 
 
 def plot_price_series(data, output_path, restrict_to_recent_months=False):
-    """
-    绘制现货和期货价格走势
-
-    Parameters:
-    -----------
-    data : pd.DataFrame
-        包含 date, spot, futures 的数据
-    output_path : str
-        输出文件路径
-    restrict_to_recent_months : bool
-        是否只显示最近三个月数据
-    """
+    """绘制现货和期货价格走势（复用 Basic GARCH）"""
     print("\n[绘图 1/8] 价格走势图...")
 
-    # 过滤数据到最近三个月（仅用于图表显示）
+    # 应用数据过滤（仅用于图表显示）
     if restrict_to_recent_months:
         data, cutoff_date = filter_data_to_recent_months(data, months=3)
-        if cutoff_date is not None:
-            print(f"  📊 图表显示范围: {cutoff_date.strftime('%Y-%m-%d')} 至今")
+        if cutoff_date:
+            print(f"  图表仅显示: {cutoff_date.strftime('%Y-%m-%d')} 之后的数据")
 
     fig, axes = plt.subplots(2, 1, figsize=(14, 8))
 
@@ -133,21 +80,23 @@ def plot_price_series(data, output_path, restrict_to_recent_months=False):
     ax1 = axes[0]
     ax1.plot(data['date'], data['spot'], label='现货价格', linewidth=1.5, alpha=0.8)
     ax1.plot(data['date'], data['futures'], label='期货价格', linewidth=1.5, alpha=0.8)
-    ax1.set_ylabel('价格', fontsize=11, fontproperties=CHINESE_FONT)
-    ax1.set_title('现货与期货价格走势', fontsize=12, fontweight='bold', fontproperties=CHINESE_FONT)
-    ax1.legend(loc='best', prop=CHINESE_FONT)
+    ax1.set_ylabel('价格', fontsize=11)
+    ax1.set_title('现货与期货价格走势', fontsize=12, fontweight='bold')
+    ax1.legend(loc='best')
     ax1.grid(True, alpha=0.3)
 
     # 基差走势
     ax2 = axes[1]
     ax2.plot(data['date'], data['spread'], label='基差', color='orange', linewidth=1.5, alpha=0.8)
-    ax2.axhline(y=data['spread'].mean(), color='red', linestyle='--', alpha=0.7, label=f'基差均值: {data["spread"].mean():.2f}')
-    ax2.set_ylabel('基差', fontsize=11, fontproperties=CHINESE_FONT)
-    ax2.set_xlabel('日期', fontsize=11, fontproperties=CHINESE_FONT)
-    ax2.set_title('基差时变', fontsize=12, fontweight='bold', fontproperties=CHINESE_FONT)
-    ax2.legend(loc='best', prop=CHINESE_FONT)
+    ax2.axhline(y=data['spread'].mean(), color='red', linestyle='--', alpha=0.7,
+                label=f'基差均值: {data["spread"].mean():.2f}')
+    ax2.set_ylabel('基差', fontsize=11)
+    ax2.set_xlabel('日期', fontsize=11)
+    ax2.set_title('基差时变', fontsize=12, fontweight='bold')
+    ax2.legend(loc='best')
     ax2.grid(True, alpha=0.3)
 
+    apply_chinese_font(axes)
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -155,21 +104,10 @@ def plot_price_series(data, output_path, restrict_to_recent_months=False):
 
 
 def plot_returns(data, output_path, restrict_to_recent_months=False):
-    """
-    绘制收益率分布
-
-    Parameters:
-    -----------
-    data : pd.DataFrame
-        包含 r_s, r_f 的数据
-    output_path : str
-        输出文件路径
-    restrict_to_recent_months : bool
-        是否只显示最近三个月数据
-    """
+    """绘制收益率分布（复用 Basic GARCH）"""
     print("[绘图 2/8] 收益率分布图...")
 
-    # 过滤数据到最近三个月（仅用于图表显示）
+    # 应用数据过滤（仅用于图表显示）
     if restrict_to_recent_months:
         data, cutoff_date = filter_data_to_recent_months(data, months=3)
 
@@ -193,7 +131,8 @@ def plot_returns(data, output_path, restrict_to_recent_months=False):
     # 收益率分布
     ax3 = axes[1, 0]
     ax3.hist(data['r_s'], bins=50, alpha=0.6, density=True, edgecolor='black')
-    ax3.axvline(x=data['r_s'].mean(), color='red', linestyle='--', alpha=0.8, label=f'均值: {data["r_s"].mean():.6f}')
+    ax3.axvline(x=data['r_s'].mean(), color='red', linestyle='--', alpha=0.8,
+                label=f'均值: {data["r_s"].mean():.6f}')
     ax3.set_xlabel('收益率', fontsize=10)
     ax3.set_ylabel('密度', fontsize=10)
     ax3.set_title('现货收益率分布', fontsize=11, fontweight='bold')
@@ -202,222 +141,200 @@ def plot_returns(data, output_path, restrict_to_recent_months=False):
 
     ax4 = axes[1, 1]
     ax4.hist(data['r_f'], bins=50, alpha=0.6, density=True, edgecolor='black', color='orange')
-    ax4.axvline(x=data['r_f'].mean(), color='red', linestyle='--', alpha=0.8, label=f'均值: {data["r_f"].mean():.6f}')
+    ax4.axvline(x=data['r_f'].mean(), color='red', linestyle='--', alpha=0.8,
+                label=f'均值: {data["r_f"].mean():.6f}')
     ax4.set_xlabel('收益率', fontsize=10)
     ax4.set_ylabel('密度', fontsize=10)
     ax4.set_title('期货收益率分布', fontsize=11, fontweight='bold')
     ax4.legend(loc='best')
     ax4.grid(True, alpha=0.3, axis='y')
 
-    # 应用中文字体
     apply_chinese_font(axes)
-
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"  ✓ 已保存: {output_path}")
 
 
-def plot_hedge_ratio(data, results, output_path, restrict_to_recent_months=False):
+def plot_ecm_ect(data, model_results, output_path, restrict_to_recent_months=False):
     """
-    绘制套保比例时变图
+    绘制误差修正项图（ECM-GARCH 特有）
 
     Parameters:
     -----------
     data : pd.DataFrame
         数据
-    results : dict
+    model_results : dict
         模型结果
     output_path : str
         输出文件路径
     restrict_to_recent_months : bool
         是否只显示最近三个月数据
     """
-    print("[绘图 3/8] 套保比例时变图...")
+    print("[绘图 3/8] 误差修正项图...")
 
-    # 过滤数据到最近三个月（仅用于图表显示）
+    # 应用数据过滤（仅用于图表显示）
     if restrict_to_recent_months:
         data, cutoff_date = filter_data_to_recent_months(data, months=3)
 
         # 计算需要保留的元素数量（从末尾开始）
         filtered_len = len(data)
 
-        # 创建过滤后的 results 副本
-        results_filtered = {
-            'h_theoretical': results['h_theoretical'][-filtered_len:],
-            'h_actual': results['h_actual'][-filtered_len:]
+        # 创建过滤后的 model_results 副本
+        model_results_filtered = {
+            'ect': model_results['ect'][-filtered_len:]
         }
     else:
-        results_filtered = results
+        model_results_filtered = model_results
 
     fig, axes = plt.subplots(2, 1, figsize=(14, 10))
 
-    # 套保比例时序
+    ect = model_results_filtered['ect']
+
+    # 误差修正项时序
     ax1 = axes[0]
-    ax1.plot(data['date'], results_filtered['h_theoretical'], label='理论套保比例 (税前)', linewidth=1.5, alpha=0.8)
-    ax1.plot(data['date'], results_filtered['h_actual'], label='调整后套保比例 (税后)', linewidth=1.5, alpha=0.8)
-    ax1.set_ylabel('套保比例', fontsize=11)
-    ax1.set_title('套保比例时变', fontsize=12, fontweight='bold')
+    ax1.plot(data['date'], ect, label='误差修正项 (ECT)', linewidth=1.5, alpha=0.8, color='#3498db')
+    ax1.axhline(y=0, color='red', linestyle='--', alpha=0.8, label='零线（均衡）')
+    ax1.axhline(y=np.nanmean(ect), color='green', linestyle='--', alpha=0.8,
+                label=f'均值: {np.nanmean(ect):.4f}')
+    ax1.axhline(y=np.nanmean(ect) + np.nanstd(ect), color='orange', linestyle=':', alpha=0.6,
+                label=f'+1 标准差: {np.nanmean(ect) + np.nanstd(ect):.4f}')
+    ax1.axhline(y=np.nanmean(ect) - np.nanstd(ect), color='orange', linestyle=':', alpha=0.6,
+                label=f'-1 标准差: {np.nanmean(ect) - np.nanstd(ect):.4f}')
+    ax1.set_ylabel('误差修正项', fontsize=11)
+    ax1.set_title('ECM-GARCH 误差修正项时变', fontsize=12, fontweight='bold')
     ax1.legend(loc='best')
     ax1.grid(True, alpha=0.3)
 
-    # 套保比例分布
+    # 误差修正项分布
     ax2 = axes[1]
-    ax2.hist(results_filtered['h_actual'], bins=50, alpha=0.6, density=True, edgecolor='black')
-    ax2.axvline(x=results_filtered['h_actual'].mean(), color='red', linestyle='--', alpha=0.8, label=f'均值: {results_filtered["h_actual"].mean():.4f}')
-    ax2.axvline(x=np.median(results_filtered['h_actual']), color='green', linestyle='--', alpha=0.8, label=f'中位数: {np.median(results_filtered["h_actual"]):.4f}')
-    ax2.set_xlabel('套保比例', fontsize=11)
+    ect_valid = ect[~np.isnan(ect)]
+    ax2.hist(ect_valid, bins=50, alpha=0.6, density=True, edgecolor='black', color='#3498db')
+    ax2.axvline(x=np.nanmean(ect), color='red', linestyle='--', alpha=0.8,
+                label=f'均值: {np.nanmean(ect):.4f}')
+    ax2.axvline(x=np.median(ect_valid), color='green', linestyle='--', alpha=0.8,
+                label=f'中位数: {np.median(ect_valid):.4f}')
+    ax2.set_xlabel('误差修正项', fontsize=11)
     ax2.set_ylabel('密度', fontsize=11)
-    ax2.set_title('套保比例分布', fontsize=12, fontweight='bold')
+    ax2.set_title('误差修正项分布', fontsize=12, fontweight='bold')
     ax2.legend(loc='best')
     ax2.grid(True, alpha=0.3, axis='y')
 
-    # 应用中文字体
     apply_chinese_font(axes)
-
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"  ✓ 已保存: {output_path}")
 
 
-def plot_volatility(data, results, output_path, restrict_to_recent_months=False):
+def plot_cointegration_params(data, model_results, output_path, restrict_to_recent_months=False):
     """
-    绘制波动率图
+    绘制协整参数时变图（ECM-GARCH 特有）
 
     Parameters:
     -----------
     data : pd.DataFrame
         数据
-    results : dict
+    model_results : dict
         模型结果
     output_path : str
         输出文件路径
     restrict_to_recent_months : bool
         是否只显示最近三个月数据
     """
-    print("[绘图 4/8] 波动率时变图...")
+    print("[绘图 4/8] 协整参数时变图...")
 
-    # 过滤数据到最近三个月（仅用于图表显示）
+    # 应用数据过滤（仅用于图表显示）
     if restrict_to_recent_months:
         data, cutoff_date = filter_data_to_recent_months(data, months=3)
 
         # 计算需要保留的元素数量（从末尾开始）
         filtered_len = len(data)
 
-        # 创建过滤后的 results 副本
-        results_filtered = {
-            'sigma_s': results['sigma_s'][-filtered_len:],
-            'sigma_f': results['sigma_f'][-filtered_len:],
-            'rolling_corr': results['rolling_corr'][-filtered_len:]
+        # 创建过滤后的 model_results 副本
+        model_results_filtered = {
+            'beta0_series': model_results['beta0_series'][-filtered_len:],
+            'beta1_series': model_results['beta1_series'][-filtered_len:],
+            'r_squared_series': model_results.get('r_squared_series', np.full(len(data), np.nan))[-filtered_len:]
         }
     else:
-        results_filtered = results
+        model_results_filtered = model_results
 
-    fig, axes = plt.subplots(2, 1, figsize=(14, 10))
+    fig, axes = plt.subplots(3, 1, figsize=(14, 12))
 
-    # 条件波动率
+    beta0_series = model_results_filtered['beta0_series']
+    beta1_series = model_results_filtered['beta1_series']
+    r_squared_series = model_results_filtered.get('r_squared_series', np.full(len(data), np.nan))
+
+    # 时变 beta0（截距项）
     ax1 = axes[0]
-    ax1.plot(data['date'], results_filtered['sigma_s'], label='现货波动率', linewidth=1.5, alpha=0.8)
-    ax1.plot(data['date'], results_filtered['sigma_f'], label='期货波动率', linewidth=1.5, alpha=0.8)
-    ax1.set_ylabel('条件波动率', fontsize=11)
-    ax1.set_title('GARCH 条件波动率', fontsize=12, fontweight='bold')
+    ax1.plot(data['date'], beta0_series, label='时变 β0（截距）', linewidth=1.5, alpha=0.8, color='#3498db')
+    ax1.axhline(y=np.nanmean(beta0_series), color='red', linestyle='--', alpha=0.8,
+                label=f'均值: {np.nanmean(beta0_series):.4f}')
+    ax1.set_ylabel('β0', fontsize=11)
+    ax1.set_title('协整参数 β0 时变（截距项）', fontsize=12, fontweight='bold')
     ax1.legend(loc='best')
     ax1.grid(True, alpha=0.3)
 
-    # 动态相关系数
+    # 时变 beta1（协整系数）
     ax2 = axes[1]
-    ax2.plot(data['date'], results_filtered['rolling_corr'], label='动态相关系数', linewidth=1.5, alpha=0.8, color='purple')
-    ax2.axhline(y=results_filtered['rolling_corr'].mean(), color='red', linestyle='--', alpha=0.8,
-                label=f'均值: {results_filtered["rolling_corr"].mean():.4f}')
-    ax2.set_ylabel('相关系数', fontsize=11)
-    ax2.set_xlabel('日期', fontsize=11)
-    ax2.set_title('动态相关系数 (窗口=120天)', fontsize=12, fontweight='bold')
+    ax2.plot(data['date'], beta1_series, label='时变 β1（协整系数）', linewidth=1.5, alpha=0.8, color='#3498db')
+    ax2.axhline(y=np.nanmean(beta1_series), color='red', linestyle='--', alpha=0.8,
+                label=f'均值: {np.nanmean(beta1_series):.4f}')
+    ax2.set_ylabel('β1', fontsize=11)
+    ax2.set_title('协整参数 β1 时变（协整系数）', fontsize=12, fontweight='bold')
     ax2.legend(loc='best')
     ax2.grid(True, alpha=0.3)
 
-    # 应用中文字体到所有文本元素
-    apply_chinese_font(axes)
+    # 时变 R²
+    ax3 = axes[2]
+    ax3.plot(data['date'], r_squared_series, label='时变 R²', linewidth=1.5, alpha=0.8, color='#3498db')
+    ax3.axhline(y=np.nanmean(r_squared_series), color='red', linestyle='--', alpha=0.8,
+                label=f'均值: {np.nanmean(r_squared_series):.4f}')
+    ax3.set_ylabel('R²', fontsize=11)
+    ax3.set_xlabel('日期', fontsize=11)
+    ax3.set_title('协整回归 R² 时变', fontsize=12, fontweight='bold')
+    ax3.legend(loc='best')
+    ax3.grid(True, alpha=0.3)
 
+    apply_chinese_font(axes)
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"  ✓ 已保存: {output_path}")
 
 
-def plot_backtest_results(data, eval_results, output_path, hedge_ratios=None, restrict_to_recent_months=False):
-    """
-    绘制回测结果：净值曲线
-
-    Parameters:
-    -----------
-    data : pd.DataFrame
-        数据
-    eval_results : dict
-        回测评估结果
-    output_path : str
-        输出文件路径
-    hedge_ratios : np.array, optional
-        套保比例序列，用于绘制次坐标轴
-    restrict_to_recent_months : bool
-        是否只显示最近三个月数据
-    """
+def plot_backtest_results(data, eval_results, output_path, restrict_to_recent_months=False):
+    """绘制回测结果：净值曲线（复用 Basic GARCH）"""
     print("[绘图 5/8] 净值曲线图...")
 
-    # 过滤数据到最近三个月（仅用于图表显示）
+    # 应用数据过滤（仅用于图表显示）
     if restrict_to_recent_months:
-        data, cutoff_date = filter_data_to_recent_months(data, months=3)
-
-        # 计算需要保留的元素数量（从末尾开始）
-        filtered_len = len(data)
-
-        # 创建过滤后的数据副本
-        returns_unhedged_filtered = eval_results['returns_unhedged'][-filtered_len:]
-        returns_hedged_filtered = eval_results['returns_hedged'][-filtered_len:]
-        drawdown_series_filtered = eval_results['drawdown_series'][-filtered_len:]
-        if hedge_ratios is not None:
-            hedge_ratios_filtered = hedge_ratios[-filtered_len:]
-        else:
-            hedge_ratios_filtered = None
+        data, _ = filter_data_to_recent_months(data, months=3)
+        # 确保评估结果与过滤后的数据对齐
+        max_len = min(len(data), len(eval_results['returns_unhedged']), len(eval_results['returns_hedged']))
+        eval_results_filtered = {
+            'returns_unhedged': eval_results['returns_unhedged'][:max_len],
+            'returns_hedged': eval_results['returns_hedged'][:max_len],
+            'drawdown_series': eval_results['drawdown_series'][:max_len],
+            'metrics': eval_results['metrics']
+        }
     else:
-        returns_unhedged_filtered = eval_results['returns_unhedged']
-        returns_hedged_filtered = eval_results['returns_hedged']
-        drawdown_series_filtered = eval_results['drawdown_series']
-        hedge_ratios_filtered = hedge_ratios
+        eval_results_filtered = eval_results
 
     fig, ax = plt.subplots(figsize=(14, 8))
 
-    # 计算累计收益率（净值）
-    cumulative_unhedged = np.cumprod(1 + returns_unhedged_filtered)
-    cumulative_hedged = np.cumprod(1 + returns_hedged_filtered)
+    cumulative_unhedged = np.cumprod(1 + eval_results_filtered['returns_unhedged'])
+    cumulative_hedged = np.cumprod(1 + eval_results_filtered['returns_hedged'])
 
-    # 绘制净值曲线
     ax.plot(data['date'].values[:len(cumulative_unhedged)], cumulative_unhedged,
             label='未套保组合', linewidth=2, alpha=0.8, color='red')
     ax.plot(data['date'].values[:len(cumulative_hedged)], cumulative_hedged,
             label='套保组合', linewidth=2, alpha=0.8, color='green')
 
-    # 标注最大回撤
-    ax.axhline(y=cumulative_hedged[np.argmin(drawdown_series_filtered)],
+    ax.axhline(y=cumulative_hedged[np.argmin(eval_results_filtered['drawdown_series'])],
                color='orange', linestyle='--', alpha=0.6,
-               label=f'套保组合最大回撤: {eval_results["metrics"]["max_dd_hedged"]:.2%}')
-
-    # 如果提供了套保比例，添加次坐标轴
-    if hedge_ratios_filtered is not None:
-        ax2 = ax.twinx()
-        min_len = min(len(data['date'].values), len(hedge_ratios_filtered))
-        ax2.plot(data['date'].values[:min_len], hedge_ratios_filtered[:min_len],
-                 label='套保比例', linewidth=1.5, alpha=0.6, color='blue', linestyle='--')
-        ax2.set_ylabel('套保比例', fontsize=9, color='blue')
-        ax2.tick_params(axis='y', labelcolor='blue')
-        ax2.set_ylim(0, max(1.0, np.max(hedge_ratios_filtered) * 1.1))
-
-        # 合并图例
-        lines1, labels1 = ax.get_legend_handles_labels()
-        lines2, labels2 = ax2.get_legend_handles_labels()
-        ax.legend(lines1 + lines2, labels1 + labels2, loc='best')
-    else:
-        ax.legend(loc='best')
+               label=f'套保组合最大回撤: {eval_results_filtered["metrics"]["max_dd_hedged"]:.2%}')
 
     ax.set_ylabel('净值', fontsize=11)
     ax.set_xlabel('日期', fontsize=11)
@@ -426,9 +343,7 @@ def plot_backtest_results(data, eval_results, output_path, hedge_ratios=None, re
     ax.grid(True, alpha=0.3)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:.2f}'))
 
-    # 应用中文字体
     apply_chinese_font(ax)
-
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -436,49 +351,34 @@ def plot_backtest_results(data, eval_results, output_path, hedge_ratios=None, re
 
 
 def plot_drawdown(data, eval_results, output_path, restrict_to_recent_months=False):
-    """
-    绘制回撤曲线
-
-    Parameters:
-    -----------
-    data : pd.DataFrame
-        数据
-    eval_results : dict
-        回测评估结果
-    output_path : str
-        输出文件路径
-    restrict_to_recent_months : bool
-        是否只显示最近三个月数据
-    """
+    """绘制回撤曲线（复用 Basic GARCH）"""
     print("[绘图 6/8] 回撤曲线图...")
 
-    # 过滤数据到最近三个月（仅用于图表显示）
+    # 应用数据过滤（仅用于图表显示）
     if restrict_to_recent_months:
-        data, cutoff_date = filter_data_to_recent_months(data, months=3)
-
-        # 计算需要保留的元素数量（从末尾开始）
-        filtered_len = len(data)
-
-        # 创建过滤后的数据副本
-        drawdown_series_filtered = eval_results['drawdown_series'][-filtered_len:]
+        data, _ = filter_data_to_recent_months(data, months=3)
+        # 确保评估结果与过滤后的数据对齐
+        max_len = min(len(data), len(eval_results['drawdown_series']))
+        eval_results_filtered = {
+            'drawdown_series': eval_results['drawdown_series'][:max_len],
+            'metrics': eval_results['metrics']
+        }
     else:
-        drawdown_series_filtered = eval_results['drawdown_series']
+        eval_results_filtered = eval_results
 
     fig, ax = plt.subplots(figsize=(14, 6))
 
-    # 绘制回撤曲线
-    ax.fill_between(data['date'].values[:len(drawdown_series_filtered)],
-                    0, drawdown_series_filtered,
+    ax.fill_between(data['date'].values[:len(eval_results_filtered['drawdown_series'])],
+                    0, eval_results_filtered['drawdown_series'],
                     alpha=0.3, color='red', label='回撤')
-    ax.plot(data['date'].values[:len(drawdown_series_filtered)],
-            drawdown_series_filtered,
+    ax.plot(data['date'].values[:len(eval_results_filtered['drawdown_series'])],
+            eval_results_filtered['drawdown_series'],
             linewidth=1.5, color='red')
 
-    # 标注最大回撤
-    max_dd_idx = np.argmin(drawdown_series_filtered)
-    ax.plot(data['date'].values[max_dd_idx], drawdown_series_filtered[max_dd_idx],
+    max_dd_idx = np.argmin(eval_results_filtered['drawdown_series'])
+    ax.plot(data['date'].values[max_dd_idx], eval_results_filtered['drawdown_series'][max_dd_idx],
             'v', markersize=10, color='darkred',
-            label=f'最大回撤: {eval_results["metrics"]["max_dd_hedged"]:.2%}')
+            label=f'最大回撤: {eval_results_filtered["metrics"]["max_dd_hedged"]:.2%}')
 
     ax.set_ylabel('回撤比例', fontsize=11)
     ax.set_xlabel('日期', fontsize=11)
@@ -487,9 +387,7 @@ def plot_drawdown(data, eval_results, output_path, restrict_to_recent_months=Fal
     ax.grid(True, alpha=0.3)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:.1%}'))
 
-    # 应用中文字体
     apply_chinese_font(ax)
-
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -497,16 +395,7 @@ def plot_drawdown(data, eval_results, output_path, restrict_to_recent_months=Fal
 
 
 def plot_performance_metrics(eval_results, output_path):
-    """
-    绘制性能指标对比图
-
-    Parameters:
-    -----------
-    eval_results : dict
-        回测评估结果
-    output_path : str
-        输出文件路径
-    """
+    """绘制性能指标对比图（复用 Basic GARCH）"""
     print("[绘图 7/8] 性能指标对比图...")
 
     metrics = eval_results['metrics']
@@ -564,33 +453,21 @@ def plot_performance_metrics(eval_results, output_path):
     ax4.legend(loc='best')
     ax4.grid(True, alpha=0.3, axis='y')
 
-    # 应用中文字体
     apply_chinese_font(axes)
-
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"  ✓ 已保存: {output_path}")
 
 
-def plot_summary_table(eval_results, selected, model_params, output_path):
-    """
-    绘制汇总表格
-
-    Parameters:
-    -----------
-    eval_results : dict
-        回测评估结果
-    selected : dict
-        列名配置
-    model_params : dict
-        模型参数
-    output_path : str
-        输出文件路径
-    """
+def plot_summary_table(eval_results, selected, model_results, output_path):
+    """绘制汇总表格（ECM-GARCH 版本）"""
     print("[绘图 8/8] 汇总表格...")
 
     metrics = eval_results['metrics']
+    model_params = model_results['model_params']
+    ecm_params = model_results['ecm_params']
+    cointegration_params = model_results['cointegration_params']
 
     fig, ax = plt.subplots(figsize=(14, 8))
     ax.axis('tight')
@@ -605,31 +482,32 @@ def plot_summary_table(eval_results, selected, model_params, output_path):
         ['样本量', f'{len(eval_results["returns_unhedged"])} 天'],
         ['', ''],
         ['模型参数', ''],
-        ['模型类型', model_params.get('model_name', 'Basic GARCH(1,1)')],
-        ['相关系数窗口', f'{model_params.get("corr_window", "N/A")} 天'],
-        ['税点调整', f'{model_params.get("tax_rate", 0):.1%}'],
+        ['模型类型', f'ECM-GARCH({model_params["p"]},{model_params["q"]})'],
+        ['协整窗口', f'{model_params["coint_window"]}天'],
+        ['耦合方式', model_params.get('coupling_method', 'ect-garch')],
+        ['税点调整', f'{model_params.get("tax_rate", 0.13):.1%}'],
+        ['', ''],
+        ['ECM 参数', ''],
+        ['截距项 (α)', f'{ecm_params["alpha"]:.6f}'],
+        ['套保比例 (h)', f'{ecm_params["h_ecm"]:.4f}'],
+        ['误差修正系数 (γ)', f'{ecm_params["gamma"]:.6f}'],
+        ['', ''],
+        ['协整参数统计', ''],
+        ['β0 均值', f'{cointegration_params["beta0_mean"]:.4f}'],
+        ['β1 均值', f'{cointegration_params["beta1_mean"]:.4f}'],
+        ['β0 标准差', f'{cointegration_params["beta0_std"]:.4f}'],
+        ['β1 标准差', f'{cointegration_params["beta1_std"]:.4f}'],
+        ['R² 均值', f'{cointegration_params["r_squared_mean"]:.4f}'],
         ['', ''],
         ['套保效果', ''],
         ['方差降低比例', f'{metrics["variance_reduction"]:.2%}'],
         ['Ederington指标', f'{metrics["ederington"]:.4f}'],
         ['', ''],
-        ['收益率统计', ''],
-        ['传统套保收益率均值 (h=1)', f'{metrics["mean_traditional"]:.6f}'],
-        ['动态套保收益率均值 (GARCH)', f'{metrics["mean_hedged"]:.6f}'],
-        ['传统套保收益率标准差', f'{metrics["std_traditional"]:.6f}'],
-        ['动态套保收益率标准差', f'{metrics["std_hedged"]:.6f}'],
-        ['', ''],
         ['风险指标', ''],
-        ['传统套保夏普比率', f'{metrics["sharpe_traditional"]:.4f}'],
-        ['动态套保夏普比率', f'{metrics["sharpe_hedged"]:.4f}'],
-        ['传统套保最大回撤', f'{metrics["max_dd_traditional"]:.2%}'],
-        ['动态套保最大回撤', f'{metrics["max_dd_hedged"]:.2%}'],
-        ['', ''],
-        ['风险价值', ''],
-        ['传统套保 VaR(95%)', f'{metrics["var_95_traditional"]:.6f}'],
-        ['动态套保 VaR(95%)', f'{metrics["var_95_hedged"]:.6f}'],
-        ['传统套保 CVaR(95%)', f'{metrics["cvar_95_traditional"]:.6f}'],
-        ['动态套保 CVaR(95%)', f'{metrics["cvar_95_hedged"]:.6f}'],
+        ['套保夏普比率', f'{metrics["sharpe_hedged"]:.4f}'],
+        ['套保最大回撤', f'{metrics["max_dd_hedged"]:.2%}'],
+        ['套保 VaR(95%)', f'{metrics["var_95_hedged"]:.6f}'],
+        ['套保 CVaR(95%)', f'{metrics["cvar_95_hedged"]:.6f}'],
     ]
 
     table = ax.table(cellText=table_data, cellLoc='left', loc='center',
@@ -639,56 +517,49 @@ def plot_summary_table(eval_results, selected, model_params, output_path):
     table.set_fontsize(10)
     table.scale(1, 1.5)
 
-    # 设置单元格样式
+    # 设置单元格样式（蓝色主题）
     for i in range(len(table_data)):
-        # 标题行（第一列为标题，第二列为空）
         if table_data[i][1] == '' and table_data[i][0] != '':
             table[(i, 0)].set_facecolor('#3498db')
             table[(i, 1)].set_facecolor('#3498db')
             table[(i, 0)].set_text_props(weight='bold', color='white')
             table[(i, 1)].set_text_props(weight='bold', color='white')
-        # 空行
         elif table_data[i][0] == '':
             table[(i, 0)].set_facecolor('white')
             table[(i, 1)].set_facecolor('white')
-        # 数据行
         elif i % 2 == 0:
             table[(i, 0)].set_facecolor('#f0f0f0')
             table[(i, 1)].set_facecolor('#f0f0f0')
 
-    # 应用中文字体到标题和表格
     apply_chinese_font(ax)
-    # 表格中的文字也需要设置字体（使用 set_text_props）
     for key, cell in table.get_celld().items():
         cell.set_text_props(fontproperties=CHINESE_FONT)
 
-    ax.set_title('Basic GARCH 套保策略回测报告汇总', fontsize=14, fontweight='bold', pad=20)
+    # 动态生成标题
+    model_name = f"ECM-GARCH({model_params['p']},{model_params['q']})"
+    ax.set_title(f'{model_name} 套保策略回测报告汇总', fontsize=14, fontweight='bold', pad=20)
 
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"  ✓ 已保存: {output_path}")
 
 
-def generate_html_report(data, eval_results, selected, model_params, output_path):
-    """
-    生成 HTML 报告
-
-    Parameters:
-    -----------
-    data : pd.DataFrame
-        数据
-    eval_results : dict
-        回测评估结果
-    selected : dict
-        列名配置
-    model_params : dict
-        模型参数
-    output_path : str
-        输出文件路径
-    """
+def generate_html_report(data, model_results, eval_results, selected, output_path):
+    """生成 HTML 报告（ECM-GARCH 版本）"""
     print("\n[生成 HTML 报告]...")
 
     metrics = eval_results['metrics']
+    model_params = model_results['model_params']
+    ecm_params = model_results['ecm_params']
+    cointegration_params = model_results['cointegration_params']
+
+    # 计算 ECM-GARCH 特有指标
+    h_actual = model_results['h_actual']
+    ect = model_results['ect']
+
+    # 动态生成模型名称
+    model_name = f"ECM-GARCH({model_params['p']},{model_params['q']})"
+    coupling_name = "ECT-GARCH" if model_params.get('coupling_method') == 'ect-garch' else "静态套保"
 
     html_content = f"""
 <!DOCTYPE html>
@@ -696,7 +567,7 @@ def generate_html_report(data, eval_results, selected, model_params, output_path
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Basic GARCH 套保策略回测报告</title>
+    <title>{model_name} 套保策略回测报告</title>
     <style>
         body {{
             font-family: Arial, sans-serif;
@@ -769,7 +640,7 @@ def generate_html_report(data, eval_results, selected, model_params, output_path
 </head>
 <body>
     <div class="container">
-        <h1>Basic GARCH 套保策略回测报告</h1>
+        <h1>{model_name} 套保策略回测报告</h1>
 
         <h2>📊 数据配置</h2>
         <table>
@@ -780,7 +651,44 @@ def generate_html_report(data, eval_results, selected, model_params, output_path
             <tr><td>样本量</td><td>{len(eval_results["returns_unhedged"])} 天</td></tr>
         </table>
 
+        <h2>⚙️ 模型参数</h2>
+        <table>
+            <tr><th>参数</th><th>值</th></tr>
+            <tr><td>模型类型</td><td>{model_name}</td></tr>
+            <tr><td>协整窗口</td><td>{model_params.get('coint_window', 120)}天</td></tr>
+            <tr><td>耦合方式</td><td>{coupling_name}</td></tr>
+            <tr><td>税点调整</td><td>{model_params.get('tax_rate', 0.13):.1%}</td></tr>
+        </table>
+
+        <h2>📈 ECM 参数</h2>
+        <table>
+            <tr><th>参数</th><th>值</th></tr>
+            <tr><td>截距项 (α)</td><td>{ecm_params["alpha"]:.6f}</td></tr>
+            <tr><td>套保比例 (h)</td><td>{ecm_params["h_ecm"]:.4f}</td></tr>
+            <tr><td>误差修正系数 (γ)</td><td>{ecm_params["gamma"]:.6f}</td></tr>
+        </table>
+
+        <h2>🔗 协整参数统计</h2>
+        <table>
+            <tr><th>参数</th><th>均值</th><th>标准差</th></tr>
+            <tr><td>β0（截距）</td><td>{cointegration_params["beta0_mean"]:.4f}</td><td>{cointegration_params["beta0_std"]:.4f}</td></tr>
+            <tr><td>β1（协整系数）</td><td>{cointegration_params["beta1_mean"]:.4f}</td><td>{cointegration_params["beta1_std"]:.4f}</td></tr>
+            <tr><td>R²</td><td>{cointegration_params["r_squared_mean"]:.4f}</td><td>-</td></tr>
+        </table>
+
         <h2>🎯 核心指标</h2>
+        <div class="metric">
+            <div class="metric-title">套保比例均值</div>
+            <div class="metric-value">{h_actual.mean():.4f}</div>
+        </div>
+        <div class="metric">
+            <div class="metric-title">误差修正项均值</div>
+            <div class="metric-value">{pd.Series(ect).mean():.4f}</div>
+        </div>
+        <div class="metric">
+            <div class="metric-title">误差修正系数 γ</div>
+            <div class="metric-value">{ecm_params["gamma"]:.6f}</div>
+        </div>
         <div class="metric">
             <div class="metric-title">方差降低比例</div>
             <div class="metric-value">{metrics["variance_reduction"]:.2%}</div>
@@ -790,11 +698,11 @@ def generate_html_report(data, eval_results, selected, model_params, output_path
             <div class="metric-value">{metrics["ederington"]:.4f}</div>
         </div>
         <div class="metric">
-            <div class="metric-title">动态套保夏普比率 (GARCH)</div>
+            <div class="metric-title">套保夏普比率</div>
             <div class="metric-value">{metrics["sharpe_hedged"]:.4f}</div>
         </div>
         <div class="metric">
-            <div class="metric-title">动态套保最大回撤 (GARCH)</div>
+            <div class="metric-title">套保最大回撤</div>
             <div class="metric-value">{metrics["max_dd_hedged"]:.2%}</div>
         </div>
 
@@ -805,11 +713,11 @@ def generate_html_report(data, eval_results, selected, model_params, output_path
         <h3>收益率分析</h3>
         <img src="figures/2_returns.png" alt="收益率分布图">
 
-        <h3>套保比例</h3>
-        <img src="figures/3_hedge_ratio.png" alt="套保比例时变图">
+        <h3>误差修正项（ECM-GARCH 特有）</h3>
+        <img src="figures/3_ecm_ect.png" alt="误差修正项图">
 
-        <h3>波动率与相关性</h3>
-        <img src="figures/4_volatility.png" alt="波动率图">
+        <h3>协整参数时变（ECM-GARCH 特有）</h3>
+        <img src="figures/4_cointegration_params.png" alt="协整参数时变图">
 
         <h3>回测净值曲线</h3>
         <img src="figures/5_backtest_results.png" alt="净值曲线图">
@@ -825,18 +733,18 @@ def generate_html_report(data, eval_results, selected, model_params, output_path
 
         <h2>📋 完整指标表</h2>
         <table>
-            <tr><th>指标</th><th>传统套保 (h=1)</th><th>动态套保 (GARCH)</th></tr>
-            <tr><td>收益率均值</td><td>{metrics["mean_unhedged"]:.6f}</td><td>{metrics["mean_hedged"]:.6f}</td></tr>
-            <tr><td>收益率标准差</td><td>{metrics["std_unhedged"]:.6f}</td><td>{metrics["std_hedged"]:.6f}</td></tr>
-            <tr><td>夏普比率</td><td>{metrics["sharpe_unhedged"]:.4f}</td><td>{metrics["sharpe_hedged"]:.4f}</td></tr>
-            <tr><td>最大回撤</td><td>{metrics["max_dd_unhedged"]:.2%}</td><td>{metrics["max_dd_hedged"]:.2%}</td></tr>
-            <tr><td>VaR (95%)</td><td>{metrics["var_95_unhedged"]:.6f}</td><td>{metrics["var_95_hedged"]:.6f}</td></tr>
-            <tr><td>CVaR (95%)</td><td>{metrics["cvar_95_unhedged"]:.6f}</td><td>{metrics["cvar_95_hedged"]:.6f}</td></tr>
+            <tr><th>指标</th><th>值</th></tr>
+            <tr><td>收益率均值（套保）</td><td>{metrics["mean_hedged"]:.6f}</td></tr>
+            <tr><td>收益率标准差（套保）</td><td>{metrics["std_hedged"]:.6f}</td></tr>
+            <tr><td>夏普比率（套保）</td><td>{metrics["sharpe_hedged"]:.4f}</td></tr>
+            <tr><td>最大回撤（套保）</td><td>{metrics["max_dd_hedged"]:.2%}</td></tr>
+            <tr><td>VaR (95%)（套保）</td><td>{metrics["var_95_hedged"]:.6f}</td></tr>
+            <tr><td>CVaR (95%)（套保）</td><td>{metrics["cvar_95_hedged"]:.6f}</td></tr>
         </table>
 
         <div style="text-align: center; margin-top: 50px; color: #7f8c8d;">
             <p>报告生成时间: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-            <p>Basic GARCH 套保策略分析系统</p>
+            <p>{model_name} 套保策略分析系统</p>
         </div>
     </div>
 </body>
@@ -849,54 +757,56 @@ def generate_html_report(data, eval_results, selected, model_params, output_path
     print(f"  ✓ 已保存: {output_path}")
 
 
-def generate_all_reports(data, results, eval_results, selected, output_dir='outputs', restrict_to_recent_months=False):
+def generate_ecm_garch_report(data, model_results, eval_results, selected, config, output_dir='outputs', restrict_to_recent_months=False):
     """
-    生成所有报告和图表
+    生成 ECM-GARCH 所有报告和图表
 
     Parameters:
     -----------
     data : pd.DataFrame
         数据
-    results : dict
+    model_results : dict
         模型结果
     eval_results : dict
         回测评估结果
     selected : dict
         列名配置
+    config : ModelConfig
+        模型配置
     output_dir : str
         输出目录
     restrict_to_recent_months : bool
-        是否只显示最近三个月数据（仅用于图表显示）
+        是否只显示最近三个月数据
+
+    Returns:
+    --------
+    dict
+        {'html_path': str}
     """
     print("\n" + "=" * 60)
-    print("生成分析报告")
+    print("生成 ECM-GARCH 分析报告")
     print("=" * 60)
 
-    if restrict_to_recent_months:
-        print("📊 图表显示范围: 最近3个月")
-
-    import os
     os.makedirs(f'{output_dir}/figures', exist_ok=True)
 
     # 生成所有图表
     plot_price_series(data, f'{output_dir}/figures/1_price_series.png', restrict_to_recent_months)
     plot_returns(data, f'{output_dir}/figures/2_returns.png', restrict_to_recent_months)
-    plot_hedge_ratio(data, results, f'{output_dir}/figures/3_hedge_ratio.png', restrict_to_recent_months)
-    plot_volatility(data, results, f'{output_dir}/figures/4_volatility.png', restrict_to_recent_months)
-    plot_backtest_results(data, eval_results, f'{output_dir}/figures/5_backtest_results.png',
-                         hedge_ratios=results.get('h_final'), restrict_to_recent_months=restrict_to_recent_months)
+    plot_ecm_ect(data, model_results, f'{output_dir}/figures/3_ecm_ect.png', restrict_to_recent_months)
+    plot_cointegration_params(data, model_results, f'{output_dir}/figures/4_cointegration_params.png', restrict_to_recent_months)
+    plot_backtest_results(data, eval_results, f'{output_dir}/figures/5_backtest_results.png', restrict_to_recent_months)
     plot_drawdown(data, eval_results, f'{output_dir}/figures/6_drawdown.png', restrict_to_recent_months)
     plot_performance_metrics(eval_results, f'{output_dir}/figures/7_performance_metrics.png')
-    plot_summary_table(eval_results, selected, results, f'{output_dir}/figures/8_summary_table.png')
+    plot_summary_table(eval_results, selected, model_results, f'{output_dir}/figures/8_summary_table.png')
 
     # 生成 HTML 报告
-    generate_html_report(data, eval_results, selected, results, f'{output_dir}/report.html')
+    generate_html_report(data, model_results, eval_results, selected, f'{output_dir}/report.html')
 
     print("\n" + "=" * 60)
-    print("✓ 报告生成完成！")
+    print("✓ ECM-GARCH 报告生成完成！")
     print("=" * 60)
     print(f"\n📁 输出目录: {output_dir}")
     print(f"  - {output_dir}/report.html  ⭐ (推荐查看)")
     print(f"  - {output_dir}/figures/ (所有图表)")
 
-    return output_dir
+    return {'html_path': f'{output_dir}/report.html'}

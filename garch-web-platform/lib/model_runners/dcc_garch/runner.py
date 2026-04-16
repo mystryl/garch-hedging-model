@@ -1,15 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Basic GARCH 模型运行器
+DCC-GARCH 模型运行器
 
-简洁的模型调用接口，设计原则：
-1. 直接调用核心模型函数（来自 lib.basic_garch_analyzer）
-2. 使用 utils.data_processor 进行数据预处理
-3. 使用 basic_garch_analyzer.report_generator 生成报告
-4. 统一的返回格式，便于 Web 平台调用
-
-参考：run_meg_full.py 的简洁风格
+实现标准接口，完全对应 basic_garch/runner.py 的结构
 """
 
 import sys
@@ -17,37 +11,36 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 import traceback
+import os
 
 # 添加项目根目录到路径
 project_root = Path(__file__).parent.parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-# 添加 lib 目录到路径，使 basic_garch_analyzer 可作为顶层模块导入
+# 添加 lib 目录到路径
 lib_dir = Path(__file__).parent.parent.parent
 if str(lib_dir) not in sys.path:
     sys.path.insert(0, str(lib_dir))
 
 # 导入核心模块
-from utils.data_processor import read_excel_sheets, _clean_metadata_rows
-from basic_garch_analyzer.basic_garch_model import fit_basic_garch
 from basic_garch_analyzer.data_loader import load_and_preprocess, DataLoadError, ColumnNotFoundError, InsufficientDataError
 from basic_garch_analyzer.config import ModelConfig
+from .dcc_model import fit_dcc_garch_model
+from .report_generator import generate_dcc_garch_report
 
 
-def run_basic_garch(
+def run_dcc_garch(
     data_path: str,
     sheet_name: str,
-    column_mapping: dict,      # 改为接受字典
-    date_range: dict = None,   # 新增参数
+    column_mapping: dict,
+    date_range: dict = None,
     skip_rows: int = 0,
     output_dir: str = None,
-    model_config: dict = None  # 新增参数
+    model_config: dict = None
 ) -> dict:
     """
-    运行 Basic GARCH 模型分析
-
-    设计理念：类似 run_meg_full.py 的简洁调用方式
+    运行 DCC-GARCH 模型分析
 
     Parameters
     ----------
@@ -64,7 +57,7 @@ def run_basic_garch(
     output_dir : str, optional
         输出目录（None 则自动创建）
     model_config : dict, optional
-        模型配置字典，包含 p, q, corr_window, tax_rate,
+        模型配置字典，包含 p, q, dist, tax_rate,
         enable_rolling_backtest, n_periods, window_days, backtest_seed
 
     Returns
@@ -80,7 +73,6 @@ def run_basic_garch(
     # ============================================================
     # 参数提取和验证
     # ============================================================
-    import os
 
     # 从 column_mapping 提取列名
     spot_col = column_mapping.get('spot')
@@ -90,7 +82,7 @@ def run_basic_garch(
     # 从 model_config 提取模型参数（提供默认值）
     p = model_config.get('p', 1) if model_config else 1
     q = model_config.get('q', 1) if model_config else 1
-    corr_window = model_config.get('corr_window', 120) if model_config else 120
+    dist = model_config.get('dist', 'norm') if model_config else 'norm'
     tax_rate = model_config.get('tax_rate', 0.13) if model_config else 0.13
     enable_rolling_backtest = model_config.get('enable_rolling_backtest', False) if model_config else False
     n_periods = model_config.get('n_periods', 6) if model_config else 6
@@ -119,8 +111,17 @@ def run_basic_garch(
 
     try:
         print("\n" + "=" * 70)
-        print(" " * 20 + "Basic GARCH 模型运行器")
+        print(" " * 20 + "DCC-GARCH 模型运行器")
         print("=" * 70)
+
+        # 验证 dist 参数
+        if dist not in ['norm', 't']:
+            return {
+                'success': False,
+                'report_path': None,
+                'summary': None,
+                'error': f'无效的分布假设: {dist}，必须是 "norm" 或 "t"'
+            }
 
         # ============================================================
         # 步骤 1: 数据加载和预处理
@@ -129,22 +130,20 @@ def run_basic_garch(
         print("-" * 70)
 
         # 使用 load_and_preprocess 函数（来自 basic_garch_analyzer）
-        # 这个函数会处理收益率计算、数据清洗等
+        # 注意：ModelConfig 不支持 dist 参数，我们在后续直接使用 dist
         config = ModelConfig(
             p=p,
             q=q,
-            corr_window=corr_window,
             tax_rate=tax_rate,
             enable_rolling_backtest=enable_rolling_backtest,
             n_periods=n_periods,
             window_days=window_days,
             backtest_seed=backtest_seed,
-            restrict_to_recent_months=restrict_to_recent_months,
             output_dir=output_dir or 'outputs/web_reports'
         )
 
-        # 计算最小数据量要求
-        min_required = max(window_days * 2 if enable_rolling_backtest else 0, corr_window)
+        # DCC-GARCH 需要至少 150 天的数据
+        min_required = max(window_days * 2 if enable_rolling_backtest else 0, 150)
 
         data, selected = load_and_preprocess(
             file_path=data_path,
@@ -165,21 +164,23 @@ def run_basic_garch(
         print(f"  期货列: {selected['futures']}")
 
         # ============================================================
-        # 步骤 2: 拟合 Basic GARCH 模型
+        # 步骤 2: 拟合 DCC-GARCH 模型
         # ============================================================
-        print("\n[步骤 2/4] 拟合 Basic GARCH 模型")
+        print("\n[步骤 2/4] 拟合 DCC-GARCH 模型")
         print("-" * 70)
 
-        model_results = fit_basic_garch(
-            data,
+        model_results = fit_dcc_garch_model(
+            data=data,
             p=config.p,
             q=config.q,
-            corr_window=config.corr_window,
-            tax_rate=config.tax_rate
+            dist=dist,
+            output_dir=config.output_dir
         )
 
-        # 保存每日套保比例数据（与 DCC-GARCH 和 ECM-GARCH 保持一致）
-        h_csv_path = os.path.join(config.output_dir, 'h_basic_garch.csv')
+        print("\n✓ 模型拟合完成")
+
+        # 保存每日套保比例数据（与 Basic GARCH 保持一致）
+        h_csv_path = os.path.join(config.output_dir, 'h_dcc_garch.csv')
         daily_h_df = pd.DataFrame({
             'date': data['date'].values,
             'spot': data['spot'].values,
@@ -187,15 +188,13 @@ def run_basic_garch(
             'spread': data['spread'].values,
             'h_theoretical': model_results['h_theoretical'],
             'h_actual': model_results['h_actual'],
-            'h_final': model_results['h_final'],
+            'hedge_ratio': model_results['hedge_ratio'],
+            'rho_t': model_results['rho_t'],
             'sigma_s': model_results['sigma_s'],
-            'sigma_f': model_results['sigma_f'],
-            'rolling_corr': model_results['rolling_corr']
+            'sigma_f': model_results['sigma_f']
         })
         daily_h_df.to_csv(h_csv_path, index=False, encoding='utf-8-sig')
         print(f"✓ 已保存每日套保比例: {h_csv_path}")
-
-        print("\n✓ 模型拟合完成")
 
         # ============================================================
         # 步骤 3: 回测评估
@@ -210,7 +209,7 @@ def run_basic_garch(
             print("使用滚动回测模式...")
             rolling_results = _run_rolling_backtest(
                 data,
-                model_results['h_final'],
+                model_results['h_actual'],
                 n_periods=config.n_periods,
                 window_days=config.window_days,
                 seed=config.backtest_seed,
@@ -229,17 +228,20 @@ def run_basic_garch(
 
             # 提取摘要信息
             summary = {
-                'model_name': f'Basic GARCH({p},{q}) - 滚动回测',
-                'model_params': f'GARCH({p},{q})',
-                'hedge_ratio_mean': float(pd.Series(model_results['h_final']).mean()),
-                'hedge_ratio_std': float(pd.Series(model_results['h_final']).std()),
+                'model_name': f'DCC-GARCH({p},{q}) - 滚动回测',
+                'model_params': f'DCC-GARCH({p},{q}), dist={dist}',
+                'hedge_ratio_mean': float(pd.Series(model_results['h_actual']).mean()),
+                'hedge_ratio_std': float(pd.Series(model_results['h_actual']).std()),
+                'correlation_mean': float(pd.Series(model_results['rho_t']).mean()),
+                'correlation_std': float(pd.Series(model_results['rho_t']).std()),
                 'avg_return_traditional': rolling_results['avg_return_traditional'],
                 'avg_return_hedged': rolling_results['avg_return_hedged'],
                 'variance_reduction': rolling_results['avg_variance_reduction'],
                 'avg_max_dd_traditional': rolling_results['avg_max_dd_traditional'],
                 'avg_max_dd_hedged': rolling_results['avg_max_dd_hedged'],
                 'n_periods': rolling_results['n_periods'],
-                'window_days': config.window_days
+                'window_days': config.window_days,
+                'dist': dist
             }
 
         else:
@@ -247,35 +249,69 @@ def run_basic_garch(
             print("使用全样本回测模式...")
             from lib.basic_garch_analyzer.backtest_evaluator import evaluate_hedging_effectiveness
 
+            # 计算回测指标
             metrics = evaluate_hedging_effectiveness(
                 data,
-                model_results['h_final'],
+                model_results['h_actual'],
                 tax_rate=config.tax_rate
             )
 
-            # 生成报告
-            from lib.basic_garch_analyzer.analyzer import evaluate_and_report
+            # 准备评估结果字典（用于绘图函数）
+            print("\n准备图表数据...")
+            import numpy as np
 
-            report_info = evaluate_and_report(
-                data=data,
-                results=model_results,
+            # 对齐数据长度
+            min_len = min(len(data), len(model_results['h_actual']))
+            data_aligned = data.iloc[:min_len].copy()
+            h_aligned = model_results['h_actual'][:min_len]
+
+            # 计算套保后收益率（考虑税点调整）
+            r_hedged = data_aligned['r_s'].values / (1 + config.tax_rate) - h_aligned * data_aligned['r_f'].values
+            r_unhedged = data_aligned['r_s'].values / (1 + config.tax_rate) - 1.0 * data_aligned['r_f'].values
+
+            # 计算累计收益率
+            cumulative_hedged = np.cumprod(1 + r_hedged)
+            cumulative_unhedged = np.cumprod(1 + r_unhedged)
+
+            # 计算回撤序列
+            running_max_h = np.maximum.accumulate(cumulative_hedged)
+            drawdown_series = (cumulative_hedged - running_max_h) / running_max_h
+
+            # 构建评估结果字典
+            eval_results = {
+                'metrics': metrics,
+                'returns_unhedged': r_unhedged,
+                'returns_hedged': r_hedged,
+                'drawdown_series': drawdown_series,
+                'start_date': data_aligned['date'].min(),
+                'end_date': data_aligned['date'].max(),
+            }
+
+            # 生成报告
+            report_info = generate_dcc_garch_report(
+                data=data_aligned,
+                model_results=model_results,
+                eval_results=eval_results,
                 selected=selected,
                 config=config,
                 output_dir=config.output_dir,
-                restrict_to_recent_months=config.restrict_to_recent_months
+                restrict_to_recent_months=restrict_to_recent_months
             )
 
             # 提取摘要信息
             summary = {
-                'model_name': f'Basic GARCH({p},{q}) - 全样本回测',
-                'model_params': f'GARCH({p},{q})',
-                'hedge_ratio_mean': float(pd.Series(model_results['h_final']).mean()),
-                'hedge_ratio_std': float(pd.Series(model_results['h_final']).std()),
+                'model_name': f'DCC-GARCH({p},{q}) - 全样本回测',
+                'model_params': f'DCC-GARCH({p},{q}), dist={dist}',
+                'hedge_ratio_mean': float(pd.Series(model_results['h_actual']).mean()),
+                'hedge_ratio_std': float(pd.Series(model_results['h_actual']).std()),
+                'correlation_mean': float(pd.Series(model_results['rho_t']).mean()),
+                'correlation_std': float(pd.Series(model_results['rho_t']).std()),
                 'variance_reduction': metrics['variance_reduction'],
                 'ederington': metrics['ederington'],
                 'sharpe_hedged': metrics['sharpe_hedged'],
                 'max_dd_hedged': metrics['max_dd_hedged'],
-                'rating': metrics['rating']
+                'rating': metrics['rating'],
+                'dist': dist
             }
 
         print("\n✓ 回测评估完成")
@@ -297,6 +333,7 @@ def run_basic_garch(
         if excel_path:
             print(f"  Excel报告: {excel_path}")
         print(f"  套保比例均值: {summary['hedge_ratio_mean']:.4f}")
+        print(f"  动态相关系数均值: {summary['correlation_mean']:.4f}")
         if 'variance_reduction' in summary:
             print(f"  方差降低: {summary['variance_reduction']:.2%}")
 
@@ -334,7 +371,7 @@ def run_basic_garch(
             'error_type': 'data_load_error'
         }
     except Exception as e:
-        error_msg = f'Basic GARCH 模型运行失败: {str(e)}\n{traceback.format_exc()}'
+        error_msg = f'DCC-GARCH 模型运行失败: {str(e)}\n{traceback.format_exc()}'
         print(f"\n✗ {error_msg}")
         return {
             'success': False,
@@ -347,21 +384,18 @@ def run_basic_garch(
 
 # 测试代码
 if __name__ == '__main__':
-    # 测试运行器（使用新的接口）
-    result = run_basic_garch(
+    # 测试运行器
+    result = run_dcc_garch(
         data_path='../../outputs/meg_full_data.xlsx',
         sheet_name=0,
         column_mapping={'spot': 'spot', 'future': 'futures', 'date': 'date'},
         model_config={
             'p': 1,
             'q': 1,
-            'corr_window': 120,
-            'tax_rate': 0.13,
-            'enable_rolling_backtest': True,
-            'n_periods': 3,
-            'window_days': 90
+            'dist': 'norm',
+            'tax_rate': 0.13
         },
-        output_dir='../../outputs/test_runner'
+        output_dir='../../outputs/test_dcc_garch'
     )
 
     if result['success']:

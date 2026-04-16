@@ -191,7 +191,9 @@ def preview_sheet(filepath: str, sheet_name: str, nrows: int = 10, skip_rows: in
             except Exception as e:
                 logger.warning(f"获取日期范围失败: {str(e)}")
 
-        # 构建预览信息
+        # 构建预览信息（列名统一转 str，防止 datetime 等类型混入）
+        df.columns = [str(c) for c in df.columns]
+        full_df.columns = [str(c) for c in full_df.columns]
         preview_info = {
             'sheet_name': sheet_name,
             'columns': list(df.columns),

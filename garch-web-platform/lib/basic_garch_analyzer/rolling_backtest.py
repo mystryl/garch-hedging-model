@@ -796,6 +796,191 @@ def plot_period_comparison(results: Dict, output_path: str):
     print(f"  ✓ 已保存: {output_path}")
 
 
+def _generate_rolling_backtest_html(data: pd.DataFrame, results: Dict, output_path: str):
+    """
+    生成滚动回测HTML报告
+
+    Parameters:
+    -----------
+    data : pd.DataFrame
+        原始数据
+    results : Dict
+        滚动回测结果
+    output_path : str
+        HTML输出路径
+    """
+    print("\n[生成滚动回测 HTML 报告]...")
+
+    period_results = results['period_results']
+
+    # 计算数据统计
+    start_date = data['date'].min().strftime('%Y-%m-%d')
+    end_date = data['date'].max().strftime('%Y-%m-%d')
+    total_days = len(data)
+
+    # 生成周期汇总表格HTML
+    period_rows = ""
+    for i, r in enumerate(period_results, 1):
+        period_rows += f"""
+            <tr>
+                <td>周期 {i}</td>
+                <td>{r['start_date'].strftime('%Y-%m-%d')}</td>
+                <td>{r['end_date'].strftime('%Y-%m-%d')}</td>
+                <td>{r['period_days']}</td>
+                <td>{r['total_return_traditional']:.2%}</td>
+                <td>{r['total_return_hedged']:.2%}</td>
+                <td>{r['variance_reduction']:.2%}</td>
+                <td>{r['max_dd_hedged']:.2%}</td>
+                <td>{r['sharpe_hedged']:.4f}</td>
+            </tr>
+        """
+
+    html_content = f"""
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Basic GARCH 滚动回测报告</title>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }}
+        .container {{
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }}
+        h1 {{
+            color: #2c3e50;
+            text-align: center;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }}
+        h2 {{
+            color: #34495e;
+            border-left: 4px solid #3498db;
+            padding-left: 15px;
+            margin-top: 30px;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }}
+        th, td {{
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }}
+        th {{
+            background-color: #3498db;
+            color: white;
+        }}
+        tr:hover {{
+            background-color: #f5f5f5;
+        }}
+        .metric {{
+            display: inline-block;
+            margin: 10px;
+            padding: 15px;
+            background-color: #ecf0f1;
+            border-radius: 5px;
+            width: 200px;
+        }}
+        .metric-title {{
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }}
+        .metric-value {{
+            font-size: 24px;
+            color: #3498db;
+            font-weight: bold;
+        }}
+        img {{
+            max-width: 100%;
+            height: auto;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin: 20px 0;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Basic GARCH 滚动回测报告</h1>
+
+        <h2>📊 数据配置</h2>
+        <table>
+            <tr><th>项目</th><th>值</th></tr>
+            <tr><td>数据期间</td><td>{start_date} 至 {end_date}</td></tr>
+            <tr><td>样本量</td><td>{total_days} 天</td></tr>
+            <tr><td>回测周期数</td><td>{results['n_periods']}</td></tr>
+            <tr><td>每个周期天数</td><td>{results['window_days']} 天</td></tr>
+        </table>
+
+        <h2>🎯 核心指标（平均）</h2>
+        <div class="metric">
+            <div class="metric-title">平均收益率（传统套保 h=1）</div>
+            <div class="metric-value">{results['avg_return_traditional']:.2%}</div>
+        </div>
+        <div class="metric">
+            <div class="metric-title">平均收益率（动态套保 GARCH）</div>
+            <div class="metric-value">{results['avg_return_hedged']:.2%}</div>
+        </div>
+        <div class="metric">
+            <div class="metric-title">平均方差降低</div>
+            <div class="metric-value">{results['avg_variance_reduction']:.2%}</div>
+        </div>
+        <div class="metric">
+            <div class="metric-title">平均最大回撤（动态套保）</div>
+            <div class="metric-value">{results['avg_max_dd_hedged']:.2%}</div>
+        </div>
+
+        <h2>📈 回测结果</h2>
+        <h3>滚动回测净值曲线</h3>
+        <img src="figures/5_backtest_results.png" alt="滚动回测净值曲线图">
+
+        <h3>滚动回测回撤曲线</h3>
+        <img src="figures/6_drawdown.png" alt="滚动回测回撤曲线图">
+
+        <h2>📋 各周期详情</h2>
+        <table>
+            <tr>
+                <th>周期</th>
+                <th>起始日期</th>
+                <th>结束日期</th>
+                <th>天数</th>
+                <th>传统套保收益率 (h=1)</th>
+                <th>动态套保收益率 (GARCH)</th>
+                <th>方差降低</th>
+                <th>最大回撤（动态套保）</th>
+                <th>夏普比率（动态套保）</th>
+            </tr>
+            {period_rows}
+        </table>
+
+        <div style="text-align: center; margin-top: 50px; color: #7f8c8d;">
+            <p>报告生成时间: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            <p>Basic GARCH 滚动回测分析系统</p>
+        </div>
+    </div>
+</body>
+</html>
+    """
+
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+
+    print(f"  ✓ 已保存: {output_path}")
+
+
 def generate_rolling_backtest_report(data: pd.DataFrame, results: Dict,
                                       output_dir: str, generate_html: bool = False):
     """
@@ -820,7 +1005,7 @@ def generate_rolling_backtest_report(data: pd.DataFrame, results: Dict,
     os.makedirs(figures_dir, exist_ok=True)
 
     # 1. 绘制图表
-    print("\n[1/2] 生成可视化图表...")
+    print("\n[1/3] 生成可视化图表...")
 
     # 如果需要生成HTML兼容图表，使用与HTML报告相同的文件名
     if generate_html:
@@ -839,7 +1024,7 @@ def generate_rolling_backtest_report(data: pd.DataFrame, results: Dict,
         plot_period_comparison(results, path)
 
     # 2. 生成Excel报告
-    print("\n[2/2] 生成表格报告...")
+    print("\n[2/3] 生成表格报告...")
 
     period_results = results['period_results']
 
@@ -895,11 +1080,19 @@ def generate_rolling_backtest_report(data: pd.DataFrame, results: Dict,
     df_periods.to_csv(csv_path, index=False, encoding='utf-8-sig')
     print(f"  ✓ CSV报告: {csv_path}")
 
+    # 3. 生成HTML报告（新增）
+    html_path = None
+    if generate_html:
+        print("\n[3/3] 生成HTML报告...")
+        html_path = os.path.join(output_dir, 'report.html')
+        _generate_rolling_backtest_html(data, results, html_path)
+
     print(f"\n✓ 滚动回测报告生成完成！")
     print(f"📁 输出目录: {output_dir}")
 
     return {
         'excel_path': excel_path,
         'csv_path': csv_path,
-        'figures_dir': figures_dir
+        'figures_dir': figures_dir,
+        'html_path': html_path  # 新增返回值
     }

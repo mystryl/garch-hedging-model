@@ -18,6 +18,7 @@ matplotlib.use('agg')  # 使用非交互式后端，避免多线程问题
 LIB_DIR = Path(__file__).parent / 'lib'
 sys.path.insert(0, str(LIB_DIR))
 
+import json
 import zipfile
 import traceback
 from flask import Flask, render_template, request, jsonify, send_file, abort
@@ -155,6 +156,19 @@ def index():
     return render_template('index.html')
 
 
+
+
+@app.route('/spread')
+def spread_arbitrage():
+    """价差套利分析页面"""
+    return render_template('spread.html')
+
+
+@app.route('/quick-signal')
+def quick_signal_page():
+    """快速信号页面"""
+    return render_template('quick_signal.html')
+
 @app.route('/health')
 def health():
     """健康检查"""
@@ -275,7 +289,8 @@ def suggest_columns(preview_data):
         'date': None
     }
 
-    # 列名转小写便于匹配
+    # 列名转小写便于匹配（防御非字符串列名如 datetime）
+    columns = [str(c) for c in columns]
     columns_lower = [col.lower() for col in columns]
 
     # 推荐日期列
@@ -457,14 +472,26 @@ def generate_report():
     window_days = data.get('window_days', 90)
     min_gap_days = data.get('min_gap_days', 180)
     backtest_seed = data.get('backtest_seed', None)  # None 或整数
+    restrict_to_recent_months = data.get('restrict_to_recent_months', False)  # 新增
+
+    # 提取 DCC-GARCH 特有参数
+    dist = data.get('dist', 'norm')  # 分布假设，默认为正态分布
+
+    # 提取 ECM-GARCH 特有参数
+    coint_window = data.get('coint_window', 120)  # 协整窗口，默认120天
+    coupling_method = data.get('coupling_method', 'ect-garch')  # 耦合方式，默认ect-garch
 
     # 参数验证
     if not filepath:
         return jsonify({'error': '缺少文件路径'}), 400
     if not sheet_name:
         return jsonify({'error': '缺少工作表名称'}), 400
-    if not column_mapping or not column_mapping.get('spot') or not column_mapping.get('future'):
-        return jsonify({'error': '缺少必要的列映射'}), 400
+    if model_type == 'spread_arbitrage':
+        if not column_mapping or not column_mapping.get('col_a') or not column_mapping.get('col_b'):
+            return jsonify({'error': '缺少价格列映射 (col_a, col_b)'}), 400
+    else:
+        if not column_mapping or not column_mapping.get('spot') or not column_mapping.get('future'):
+            return jsonify({'error': '缺少必要的列映射'}), 400
     if not model_type:
         return jsonify({'error': '未选择模型类型'}), 400
     if model_type not in MODEL_RUNNERS:
@@ -475,8 +502,13 @@ def generate_report():
         return jsonify({'error': f'文件不存在: {filepath}'}), 404
 
     try:
-        # 获取模型配置
+        # 获取模型配置（先取默认值，再用前端参数覆盖）
         model_config = MODEL_CONFIG.get(model_type, {}).copy()
+
+        # 合并前端传来的 model_config（entry_zscore, enable_dcc_stoploss 等）
+        frontend_mc = data.get('model_config')
+        if frontend_mc and isinstance(frontend_mc, dict):
+            model_config.update(frontend_mc)
 
         # 合并滚动回测配置到 model_config（新增）
         model_config.update({
@@ -484,8 +516,21 @@ def generate_report():
             'n_periods': n_periods,
             'window_days': window_days,
             'min_gap_days': min_gap_days,
-            'backtest_seed': backtest_seed
+            'backtest_seed': backtest_seed,
+            'restrict_to_recent_months': restrict_to_recent_months  # 新增
         })
+
+        # 添加 DCC-GARCH 特有参数
+        if model_type == 'dcc_garch' and dist:
+            model_config['dist'] = dist
+            print(f"  DCC-GARCH 分布假设: {dist}")
+
+        # 添加 ECM-GARCH 特有参数
+        if model_type == 'ecm_garch':
+            model_config['coint_window'] = coint_window
+            model_config['coupling_method'] = coupling_method
+            print(f"  ECM-GARCH 协整窗口: {coint_window}")
+            print(f"  ECM-GARCH 耦合方式: {coupling_method}")
 
         # 打印配置信息
         if enable_rolling_backtest:
@@ -505,6 +550,16 @@ def generate_report():
         print(f"列映射: {column_mapping}")
         print(f"{'='*60}\n")
 
+        # 创建带时间戳的输出目录，隔离不同运行的输出文件
+        from datetime import datetime
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        model_output_dir = str(OUTPUT_DIR / 'web_reports' / timestamp)
+
+        # 确保目录存在
+        os.makedirs(model_output_dir, exist_ok=True)
+
+        print(f"输出目录: {model_output_dir}")
+
         model_runner = MODEL_RUNNERS[model_type]
         result = model_runner(
             data_path=filepath,
@@ -512,7 +567,7 @@ def generate_report():
             column_mapping=column_mapping,
             date_range=date_range,
             skip_rows=skip_rows,
-            output_dir=str(OUTPUT_DIR / 'web_reports'),
+            output_dir=model_output_dir,  # 使用带时间戳的目录
             model_config=model_config
         )
 
@@ -533,41 +588,104 @@ def generate_report():
         MODEL_NAME_MAP = {
             'basic_garch': 'Basic_GARCH',
             'dcc_garch': 'DCC_GARCH',
-            'ecm_garch': 'ECM_GARCH'
+            'ecm_garch': 'ECM_GARCH',
+            'spread_arbitrage': 'SpreadArbitrage'
         }
         model_display_name = MODEL_NAME_MAP.get(model_type, model_type.upper())
 
-        # 组合文件名：YYYYMMDD_品种_模型名.zip
-        zip_filename = f"{current_date}_{commodity_name}_{model_display_name}.zip"
+        # 组合文件名：YYYYMMDD_HHMMSS_品种_模型名.zip（使用时间戳确保唯一性）
+        zip_filename = f"{timestamp}_{commodity_name}_{model_display_name}.zip"
         zip_path = OUTPUT_DIR / 'web_reports' / zip_filename
 
         # 创建ZIP文件
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            # 添加HTML报告
+            # 1. 添加HTML报告
             if report_path.exists():
                 zipf.write(report_path, report_path.name)
 
-            # 添加模型结果CSV（如果存在）
+            # 2. 添加每日详细数据CSV（在 output_dir 根目录）
+            #    - h_dcc_garch.csv (DCC-GARCH)
+            #    - h_ecm_garch.csv (ECM-GARCH)
+            for csv_file in output_dir.glob('h_*.csv'):
+                zipf.write(csv_file, csv_file.name)
+
+            # 3. 添加汇总报告CSV和Excel（在 output_dir 根目录）
+            #    - backtest_report.csv/xlsx
+            #    - rolling_backtest_report.csv/xlsx
+            for report_file in output_dir.glob('*_report.csv'):
+                zipf.write(report_file, report_file.name)
+            for report_file in output_dir.glob('*_report.xlsx'):
+                zipf.write(report_file, report_file.name)
+
+            # 4. 添加模型结果子目录CSV（如果存在）
+            #    - model_results/h_basic_garch.csv
             model_results_dir = output_dir / 'model_results'
             if model_results_dir.exists():
                 for csv_file in model_results_dir.glob('*.csv'):
                     zipf.write(csv_file, f"model_results/{csv_file.name}")
 
-            # 添加图表（如果存在）
+            # 5. 添加图表（如果存在）
             figures_dir = output_dir / 'figures'
             if figures_dir.exists():
                 for fig_file in figures_dir.glob('*.png'):
                     zipf.write(fig_file, f"figures/{fig_file.name}")
 
+        # 6. 导出配置文件（用于快速信号，所有模型通用）
+        config_download_url = None
+
+        # 确定导出的参数字段（不同模型有不同的可配参数）
+        if model_type == 'spread_arbitrage':
+            param_keys = ('entry_zscore', 'exit_zscore', 'zscore_window',
+                          'max_holding_days', 'enable_dcc_stoploss')
+        elif model_type == 'basic_garch':
+            param_keys = ('p', 'q', 'corr_window', 'tax_rate')
+        elif model_type == 'dcc_garch':
+            param_keys = ('p', 'q', 'dist', 'tax_rate')
+        elif model_type == 'ecm_garch':
+            param_keys = ('p', 'q', 'coint_window', 'coupling_method', 'tax_rate')
+        else:
+            param_keys = ()
+
+        if param_keys:
+            config_export = {
+                'version': '1.0',
+                'created_at': timestamp,
+                'model_type': model_type,
+                'data': {
+                    'filepath': str(Path(filepath).absolute()),
+                    'sheet_name': sheet_name,
+                    'column_mapping': column_mapping,
+                    'skip_rows': skip_rows,
+                    'date_range': date_range,
+                },
+                'parameters': {
+                    k: model_config[k] for k in param_keys if k in model_config
+                },
+                'last_analysis_summary': result.get('summary', {}),
+            }
+            # 保存到输出目录（供单独下载）
+            configs_dir = OUTPUT_DIR / 'configs'
+            os.makedirs(configs_dir, exist_ok=True)
+            config_standalone_path = configs_dir / f'{timestamp}_analysis_config.json'
+            with open(config_standalone_path, 'w', encoding='utf-8') as f:
+                json.dump(config_export, f, indent=2, ensure_ascii=False)
+            config_download_url = f'/download-config/{timestamp}_analysis_config.json'
+            # 同时加入 ZIP
+            with zipfile.ZipFile(zip_path, 'a', zipfile.ZIP_DEFLATED) as zipf:
+                zipf.write(config_standalone_path, 'analysis_config.json')
+
         # 返回结果
-        return jsonify({
+        response_data = {
             'success': True,
             'report_path': str(report_path.relative_to(OUTPUT_DIR)),
             'download_url': f'/download/{zip_filename}',
             'view_url': f'/report?path={report_path.relative_to(OUTPUT_DIR)}',
             'summary': result.get('summary', {}),
             'message': f'{MODEL_CONFIG[model_type]["name"]}模型分析完成'
-        })
+        }
+        if config_download_url:
+            response_data['config_download_url'] = config_download_url
+        return jsonify(response_data)
 
     except Exception as e:
         error_msg = f'生成报告失败: {str(e)}\n{traceback.format_exc()}'
@@ -582,11 +700,11 @@ def download_file(filename):
     """
     try:
         # 安全验证：防止路径遍历攻击
-        safe_filename = secure_filename(filename)
-        if safe_filename != filename or '..' in filename or filename.startswith('/'):
+        # 注意：文件名是系统生成的（已安全），不需要 secure_filename() 过滤中文
+        if '..' in filename or filename.startswith('/') or '\\' in filename:
             return jsonify({'error': '非法文件名'}), 400
 
-        file_path = (OUTPUT_DIR / 'web_reports' / safe_filename).resolve()
+        file_path = (OUTPUT_DIR / 'web_reports' / filename).resolve()
         allowed_dir = (OUTPUT_DIR / 'web_reports').resolve()
 
         # 确保解析后的路径仍在允许的目录内
@@ -599,8 +717,37 @@ def download_file(filename):
         return send_file(
             file_path,
             as_attachment=True,
-            download_name=safe_filename,
+            download_name=filename,
             mimetype='application/zip'
+        )
+
+    except Exception as e:
+        return jsonify({'error': f'下载失败: {str(e)}'}), 500
+
+
+@app.route('/download-config/<filename>')
+def download_config_file(filename):
+    """
+    下载快速信号配置文件
+    """
+    try:
+        if '..' in filename or filename.startswith('/') or '\\' in filename:
+            return jsonify({'error': '非法文件名'}), 400
+
+        file_path = (OUTPUT_DIR / 'configs' / filename).resolve()
+        allowed_dir = (OUTPUT_DIR / 'configs').resolve()
+
+        if not str(file_path).startswith(str(allowed_dir)):
+            return jsonify({'error': '非法文件路径'}), 403
+
+        if not file_path.exists():
+            return jsonify({'error': f'配置文件不存在: {filename}'}), 404
+
+        return send_file(
+            file_path,
+            as_attachment=True,
+            download_name='analysis_config.json',
+            mimetype='application/json'
         )
 
     except Exception as e:
@@ -640,8 +787,8 @@ def view_report():
             content = f.read()
 
         # === 动态修正图片路径 ===
-        # 提取报告所在目录（如 web_reports 或 20250304_MEG_Basic_GARCH）
-        report_dir = file_path.parent.name
+        # 提取报告所在目录（需要保留相对路径结构，如 web_reports/20260306_105718）
+        report_dir = file_path.parent.relative_to(OUTPUT_DIR)
 
         # 将图片路径从 figures/xxx.png 改为相对于根目录的路径
         # 使用正则表达式替换
@@ -685,6 +832,50 @@ def serve_report_images(filename):
 
     except Exception as e:
         return jsonify({'error': f'图片加载失败: {str(e)}'}), 500
+
+
+@app.route('/api/quick-signal', methods=['POST'])
+def quick_signal_api():
+    """
+    快速信号 API — 接收配置文件，返回最近 30 天信号
+    """
+    # 支持两种方式：上传文件 或 JSON body
+    if 'file' in request.files:
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': '未选择文件'}), 400
+        try:
+            config = json.load(file)
+        except Exception as e:
+            return jsonify({'error': f'配置文件格式错误: {str(e)}'}), 400
+    else:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': '请求数据为空'}), 400
+        config = data.get('config') or data
+
+    # 校验配置
+    if not config.get('data', {}).get('filepath'):
+        return jsonify({'error': '配置文件缺少 data.filepath'}), 400
+    model_type = config.get('model_type', '')
+    if model_type not in ('spread_arbitrage', 'basic_garch', 'dcc_garch', 'ecm_garch'):
+        return jsonify({'error': f'不支持的模型类型: {model_type}'}), 400
+
+    try:
+        from lib.spread_arbitrage_analyzer.quick_signal import QuickSignalCalculator
+
+        calculator = QuickSignalCalculator()
+        result = calculator.calculate(config)
+
+        if not result.get('success'):
+            return jsonify({'error': result.get('error', '计算失败')}), 500
+
+        return jsonify(result)
+
+    except Exception as e:
+        error_msg = f'快速信号计算失败: {str(e)}\n{traceback.format_exc()}'
+        print(error_msg)
+        return jsonify({'error': error_msg}), 500
 
 
 @app.errorhandler(413)

@@ -16,8 +16,13 @@ let backtestConfig = {
     n_periods: 6,
     window_days: 90,
     min_gap_days: 180,
-    seed_mode: 'fixed',  // 'fixed' 或 'random'
+    seed_mode: 'fixed',  // 'fixed' or 'random'
     seed_value: 42
+};
+
+// 图表显示配置
+let chartDisplayConfig = {
+    restrict_to_recent_months: false
 };
 
 // DOM加载完成后执行
@@ -28,6 +33,10 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('✓ 上传区域初始化完成');
     initializeBacktestConfig();
     console.log('✓ 滚动回测配置初始化完成');
+    initializeChartDisplayOptions();
+    console.log('✓ 图表显示选项初始化完成');
+    initializeModelSelection();
+    console.log('✓ 模型选择监听器初始化完成');
 });
 
 /**
@@ -167,6 +176,62 @@ function initializeBacktestConfig() {
     });
 
     console.log('✓ 滚动回测配置初始化完成');
+}
+
+/**
+ * 初始化图表显示选项
+ */
+function initializeChartDisplayOptions() {
+    console.log('→ 初始化图表显示选项');
+
+    const restrictCheckbox = document.getElementById('restrictToRecentMonths');
+    if (restrictCheckbox) {
+        restrictCheckbox.addEventListener('change', (e) => {
+            chartDisplayConfig.restrict_to_recent_months = e.target.checked;
+            console.log('  只分析最近三个月:', e.target.checked);
+        });
+    }
+
+    console.log('✓ 图表显示选项初始化完成');
+}
+
+/**
+ * 初始化模型选择监听器
+ */
+function initializeModelSelection() {
+    console.log('→ 初始化模型选择监听器');
+
+    const modelRadios = document.querySelectorAll('input[name="model"]');
+    const dccParams = document.getElementById('dcc-params');
+    const ecmParams = document.getElementById('ecm-params');
+
+    if (!modelRadios.length || !dccParams || !ecmParams) {
+        console.warn('✗ 模型选择元素未找到');
+        return;
+    }
+
+    modelRadios.forEach(radio => {
+        radio.addEventListener('change', function() {
+            const modelType = this.value;
+
+            // 显示/隐藏 DCC-GARCH 参数
+            if (modelType === 'dcc_garch') {
+                dccParams.style.display = 'block';
+                ecmParams.style.display = 'none';
+                console.log('  显示 DCC-GARCH 参数');
+            } else if (modelType === 'ecm_garch') {
+                dccParams.style.display = 'none';
+                ecmParams.style.display = 'block';
+                console.log('  显示 ECM-GARCH 参数');
+            } else {
+                dccParams.style.display = 'none';
+                ecmParams.style.display = 'none';
+                console.log('  隐藏所有模型参数');
+            }
+        });
+    });
+
+    console.log('✓ 模型选择监听器初始化完成');
 }
 
 /**
@@ -731,6 +796,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 backtestConfig.style.display = 'block';
             }
 
+            // 显示图表显示选项区域
+            const chartDisplayOptions = document.getElementById('chartDisplayOptions');
+            if (chartDisplayOptions) {
+                chartDisplayOptions.style.display = 'block';
+            }
+
             // 滚动到模型选择区域
             if (modelSelection) {
                 modelSelection.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -781,6 +852,23 @@ async function generateReport() {
         date: dateColumn || null
     };
 
+    // 获取分布假设参数（DCC-GARCH 特有）
+    let distParam = 'norm';  // 默认值
+    if (modelType === 'dcc_garch') {
+        distParam = document.getElementById('dist-param')?.value || 'norm';
+        console.log('  分布假设参数:', distParam);
+    }
+
+    // 获取 ECM-GARCH 特有参数
+    let cointWindowParam = 120;  // 默认值
+    let couplingMethodParam = 'ect-garch';  // 默认值
+    if (modelType === 'ecm_garch') {
+        cointWindowParam = parseInt(document.getElementById('coint-window-param')?.value || '120');
+        couplingMethodParam = document.getElementById('coupling-method-param')?.value || 'ect-garch';
+        console.log('  协整窗口参数:', cointWindowParam);
+        console.log('  耦合方式参数:', couplingMethodParam);
+    }
+
     // 显示进度
     showProgress('正在运行模型分析...');
 
@@ -796,20 +884,40 @@ async function generateReport() {
             enable_rolling_backtest: false
         };
 
+        // 准备图表显示配置
+        const chartDisplayParams = {
+            restrict_to_recent_months: chartDisplayConfig.restrict_to_recent_months
+        };
+
+        // 准备请求体
+        const requestBody = {
+            filepath: uploadedFile.path,
+            sheet_name: selectedSheet,
+            column_mapping: columnMapping,
+            date_range: null,
+            model_type: modelType,
+            skip_rows: skipRows,
+            ...backtestParams,  // 展开滚动回测参数
+            ...chartDisplayParams  // 展开图表显示参数
+        };
+
+        // 如果是 DCC-GARCH，添加分布假设参数
+        if (modelType === 'dcc_garch') {
+            requestBody.dist = distParam;
+        }
+
+        // 如果是 ECM-GARCH，添加协整窗口和耦合方式参数
+        if (modelType === 'ecm_garch') {
+            requestBody.coint_window = cointWindowParam;
+            requestBody.coupling_method = couplingMethodParam;
+        }
+
         const response = await fetch('/api/generate', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                filepath: uploadedFile.path,
-                sheet_name: selectedSheet,
-                column_mapping: columnMapping,
-                date_range: null,
-                model_type: modelType,
-                skip_rows: skipRows,
-                ...backtestParams  // 展开滚动回测参数
-            })
+            body: JSON.stringify(requestBody)
         });
 
         const result = await response.json();
@@ -922,6 +1030,12 @@ function displayResult(result) {
             <a href="${result.download_url}" class="btn" style="background-color: #2ecc71; color: white; text-decoration: none; padding: 12px 24px; border-radius: 4px; display: inline-block;">
                 📥 下载ZIP包
             </a>
+            ${result.config_download_url ? `<a href="${result.config_download_url}" class="btn" style="background-color: #e67e22; color: white; text-decoration: none; padding: 12px 24px; border-radius: 4px; display: inline-block;">
+                📋 下载配置文件
+            </a>
+            <a href="/quick-signal" class="btn" style="background-color: #8e44ad; color: white; text-decoration: none; padding: 12px 24px; border-radius: 4px; display: inline-block;">
+                ⚡ 快速信号
+            </a>` : ''}
             <button onclick="resetAnalysis()" class="btn" style="background-color: #e74c3c; color: white; padding: 12px 24px; border-radius: 4px; border: none; cursor: pointer;">
                 🔄 重新分析
             </button>

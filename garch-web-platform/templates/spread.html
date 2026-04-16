@@ -1,0 +1,535 @@
+{% extends "base.html" %}
+
+{% block title %}价差套利分析{% endblock %}
+
+{% block content %}
+<style>
+.spread-container { max-width: 960px; margin: 0 auto; padding: 20px; }
+.spread-card {
+    background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    padding: 25px; margin-bottom: 25px;
+}
+.spread-card h2 {
+    color: #2c3e50; margin-bottom: 18px; padding-bottom: 10px;
+    border-bottom: 2px solid #3498db; font-size: 18px;
+}
+.spread-card h3 { color: #34495e; margin: 15px 0 10px; font-size: 16px; }
+.form-row { display: flex; gap: 15px; margin-bottom: 15px; }
+.form-row > * { flex: 1; }
+.form-group { margin-bottom: 15px; }
+.form-group label {
+    display: block; margin-bottom: 6px; font-weight: 600;
+    color: #2c3e50; font-size: 14px;
+}
+.form-control {
+    width: 100%; padding: 10px 12px; border: 1px solid #dcdfe6;
+    border-radius: 4px; font-size: 14px; transition: border-color 0.2s;
+    box-sizing: border-box;
+}
+.form-control:focus { outline: none; border-color: #3498db; }
+select.form-control { cursor: pointer; }
+.btn {
+    padding: 10px 24px; border: none; border-radius: 4px; cursor: pointer;
+    font-size: 14px; font-weight: 500; transition: all 0.2s;
+}
+.btn-primary { background: #3498db; color: white; }
+.btn-primary:hover { background: #2980b9; }
+.btn-success { background: #27ae60; color: white; font-size: 16px; padding: 14px; }
+.btn-success:hover { background: #229954; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.upload-area {
+    border: 2px dashed #bdc3c7; border-radius: 8px; padding: 35px;
+    text-align: center; cursor: pointer; transition: all 0.3s;
+}
+.upload-area:hover, .upload-area.drag-over {
+    border-color: #3498db; background: #ebf5fb;
+}
+.progress-wrap { margin-top: 15px; }
+.progress {
+    width: 100%; height: 24px; background: #ecf0f1; border-radius: 4px; overflow: hidden;
+}
+.progress-bar {
+    height: 100%; background: linear-gradient(90deg, #3498db, #2ecc71);
+    transition: width 0.4s; display: flex; align-items: center;
+    justify-content: center; color: white; font-size: 12px; font-weight: 600;
+}
+.results-card {
+    background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    padding: 25px; margin-bottom: 25px; display: none;
+}
+.results-card h2 { color: #2c3e50; margin-bottom: 18px; }
+.metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 15px 0; }
+.metric-box {
+    background: #f8f9fa; padding: 14px; border-radius: 6px; text-align: center;
+}
+.metric-box .value { font-size: 22px; font-weight: 700; color: #2c3e50; }
+.metric-box .value.positive { color: #27ae60; }
+.metric-box .value.negative { color: #e74c3c; }
+.metric-box .label { font-size: 12px; color: #7f8c8d; margin-top: 4px; }
+.verdict-box {
+    padding: 14px 18px; border-radius: 6px; margin: 15px 0; font-weight: 600;
+}
+.verdict-box.good { background: #e8f8f5; color: #1e8449; border-left: 4px solid #27ae60; }
+.verdict-box.bad { background: #fdedec; color: #c0392b; border-left: 4px solid #e74c3c; }
+.verdict-box.warn { background: #fef9e7; color: #b7950b; border-left: 4px solid #f1c40f; }
+.preview-table {
+    width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px;
+}
+.preview-table th {
+    background: #ecf0f1; border: 1px solid #ddd; padding: 8px; text-align: left;
+}
+.preview-table td { border: 1px solid #ddd; padding: 6px; }
+.note {
+    font-size: 12px; color: #95a5a6; margin-top: 5px;
+}
+.back-link {
+    display: inline-block; margin-bottom: 20px; color: #3498db;
+    text-decoration: none; font-size: 14px;
+}
+.back-link:hover { text-decoration: underline; }
+</style>
+
+<div class="spread-container">
+    <a href="/" class="back-link">← 返回套保分析平台</a>
+
+    <!-- 步骤1: 上传文件 -->
+    <div class="spread-card">
+        <h2>步骤1: 上传数据文件</h2>
+        <div class="form-group">
+            <label>跳过前 N 行（表头前的元数据行）</label>
+            <select id="skipRows" class="form-control" style="width: 100px; display: inline-block;">
+                <option value="0">0</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+            </select>
+        </div>
+        <div class="upload-area" id="uploadArea">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#bdc3c7" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            <p style="color:#7f8c8d;">拖拽 Excel 文件到此处，或点击选择</p>
+            <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none;">
+            <button class="btn btn-primary" onclick="event.stopPropagation(); document.getElementById('fileInput').click();" style="margin-top:10px;">选择文件</button>
+        </div>
+    </div>
+
+    <!-- 步骤2: 选择工作表 -->
+    <div class="spread-card" id="sheetCard" style="display:none;">
+        <h2>步骤2: 选择工作表</h2>
+        <div class="form-group">
+            <label>工作表</label>
+            <select id="sheetSelect" class="form-control">
+                <option value="">-- 请选择 --</option>
+            </select>
+        </div>
+        <div id="dataPreview" style="max-height:250px;overflow:auto;border:1px solid #eee;padding:10px;border-radius:4px;">
+            <p style="color:#aaa;">选择工作表后显示预览</p>
+        </div>
+    </div>
+
+    <!-- 步骤3: 列映射 -->
+    <div class="spread-card" id="columnCard" style="display:none;">
+        <h2>步骤3: 配置价格列</h2>
+        <div class="form-row">
+            <div class="form-group">
+                <label>价格序列 A 列</label>
+                <select id="colA" class="form-control"><option value="">-- 请选择 --</option></select>
+                <p class="note">如：热卷收盘价</p>
+            </div>
+            <div class="form-group">
+                <label>价格序列 B 列</label>
+                <select id="colB" class="form-control"><option value="">-- 请选择 --</option></select>
+                <p class="note">如：螺纹收盘价</p>
+            </div>
+        </div>
+        <div class="form-group">
+            <label>日期列（可选，默认自动检测）</label>
+            <select id="colDate" class="form-control"><option value="">自动检测</option></select>
+        </div>
+        <button class="btn btn-primary" id="confirmColsBtn" disabled onclick="confirmColumns()">确认列配置</button>
+    </div>
+
+    <!-- 步骤4: 参数配置 -->
+    <div class="spread-card" id="paramCard" style="display:none;">
+        <h2>步骤4: 参数配置（可选）</h2>
+        <div class="form-row">
+            <div class="form-group">
+                <label>入场 Z-Score 阈值</label>
+                <select id="entryZ" class="form-control">
+                    <option value="1.5">1.5（激进）</option>
+                    <option value="2.0" selected>2.0（标准）</option>
+                    <option value="2.5">2.5（保守）</option>
+                    <option value="3.0">3.0（严格）</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>出场 Z-Score 阈值</label>
+                <select id="exitZ" class="form-control">
+                    <option value="0">0.0（回归均值平仓）</option>
+                    <option value="0.5" selected>0.5</option>
+                    <option value="1.0">1.0</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Z-Score 滚动窗口</label>
+                <select id="zscoreWindow" class="form-control">
+                    <option value="30">30天</option>
+                    <option value="60" selected>60天</option>
+                    <option value="90">90天</option>
+                    <option value="120">120天</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>最大持仓天数</label>
+                <select id="maxHolding" class="form-control">
+                    <option value="30">30天</option>
+                    <option value="45">45天</option>
+                    <option value="60" selected>60天</option>
+                    <option value="90">90天</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-group">
+            <label style="display:flex;align-items:center;cursor:pointer;">
+                <input type="checkbox" id="enableDccStoploss" checked style="width:18px;height:18px;margin-right:10px;">
+                <span>启用 DCC 预警止损（协整稳定性监控）</span>
+            </label>
+        </div>
+        <div class="form-group">
+            <label style="display:flex;align-items:center;cursor:pointer;">
+                <input type="checkbox" id="enableRolling" style="width:18px;height:18px;margin-right:10px;">
+                <span>启用滚动回测</span>
+            </label>
+        </div>
+        <div id="rollingOpts" style="display:none;margin-top:12px;padding:15px;background:#f8f9fa;border-radius:6px;">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>回测周期数</label>
+                    <select id="rollingPeriods" class="form-control">
+                        <option value="4">4</option>
+                        <option value="6" selected>6</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>每周期天数</label>
+                    <select id="rollingWindow" class="form-control">
+                        <option value="200">200</option>
+                        <option value="250" selected>250</option>
+                        <option value="300">300</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        <button class="btn btn-success" id="runBtn" onclick="runAnalysis()" style="width:100%;margin-top:15px;">
+            🚀 运行价差套利分析
+        </button>
+        <div class="progress-wrap" id="progressWrap" style="display:none;">
+            <div class="progress"><div class="progress-bar" id="progressBar" style="width:0%"></div></div>
+            <p id="progressText" style="text-align:center;margin-top:8px;color:#7f8c8d;font-size:13px;">处理中...</p>
+        </div>
+    </div>
+
+    <!-- 步骤5: 结果 -->
+    <div class="results-card" id="resultsCard">
+        <h2>📊 分析结果</h2>
+        <div id="verdictBox"></div>
+        <div id="summaryContent"></div>
+        <div id="metricsGrid"></div>
+        <div id="actionButtons" style="margin-top:20px;text-align:center;"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    let state = {
+        filepath: null,
+        filename: null,
+        sheet: null,
+        columns: [],
+        dateColumns: []
+    };
+
+    // ========== 上传 ==========
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+
+    uploadArea.addEventListener('click', () => fileInput.click());
+    uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('drag-over'); });
+    uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('drag-over'));
+    uploadArea.addEventListener('drop', e => {
+        e.preventDefault(); uploadArea.classList.remove('drag-over');
+        if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', e => { if (e.target.files.length) handleFile(e.target.files[0]); });
+
+    async function handleFile(file) {
+        if (!file.name.match(/\.xlsx?$/i)) { alert('请上传 Excel 文件'); return; }
+        const skipRows = parseInt(document.getElementById('skipRows').value);
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('skip_rows', skipRows);
+
+        try {
+            const res = await fetch('/api/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (!data.success) { alert('上传失败: ' + data.error); return; }
+
+            state.filepath = data.filepath;
+            state.filename = data.filename;
+
+            // 填充工作表列表
+            const sel = document.getElementById('sheetSelect');
+            sel.innerHTML = '<option value="">-- 请选择 --</option>';
+            (data.sheets || []).forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.name; opt.textContent = s.name + (s.row_count ? ` (${s.row_count}行)` : '');
+                if (s.name === data.recommended_sheet) opt.selected = true;
+                sel.appendChild(opt);
+            });
+
+            document.getElementById('sheetCard').style.display = 'block';
+            if (data.recommended_sheet) {
+                sel.value = data.recommended_sheet;
+                loadPreview();
+            }
+        } catch (e) { alert('上传出错: ' + e.message); }
+    }
+
+    // ========== 预览 ==========
+    document.getElementById('sheetSelect').addEventListener('change', loadPreview);
+
+    async function loadPreview() {
+        const sheet = document.getElementById('sheetSelect').value;
+        if (!sheet) return;
+        const skipRows = parseInt(document.getElementById('skipRows').value);
+
+        try {
+            const res = await fetch('/api/preview-sheet', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filepath: state.filepath, sheet_name: sheet, skip_rows: skipRows })
+            });
+            const data = await res.json();
+            if (!data.success) { alert('预览失败: ' + data.error); return; }
+
+            state.sheet = sheet;
+            state.columns = data.preview.columns || [];
+            state.dateColumns = data.preview.date_columns || [];
+
+            // 渲染预览表格
+            const rows = data.preview.preview_data || [];
+            let html = '<table class="preview-table"><thead><tr>';
+            state.columns.forEach(c => html += `<th>${c}</th>`);
+            html += '</tr></thead><tbody>';
+            rows.forEach((r, i) => {
+                html += `<tr class="${i % 2 ? 'odd' : 'even'}">`;
+                state.columns.forEach(c => html += `<td>${r[c] ?? ''}</td>`);
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            document.getElementById('dataPreview').innerHTML = html;
+
+            // 填充列选择
+            fillColumnSelect('colA', state.columns);
+            fillColumnSelect('colB', state.columns);
+            const dateSel = document.getElementById('colDate');
+            dateSel.innerHTML = '<option value="">自动检测</option>';
+            state.columns.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c; opt.textContent = c;
+                if (state.dateColumns.includes(c)) opt.selected = true;
+                dateSel.appendChild(opt);
+            });
+
+            // 自动推荐
+            if (data.suggested_columns) {
+                if (data.suggested_columns.spot && state.columns.includes(data.suggested_columns.spot))
+                    document.getElementById('colA').value = data.suggested_columns.spot;
+                if (data.suggested_columns.future && state.columns.includes(data.suggested_columns.future))
+                    document.getElementById('colB').value = data.suggested_columns.future;
+                if (data.suggested_columns.date)
+                    document.getElementById('colDate').value = data.suggested_columns.date;
+            }
+
+            document.getElementById('columnCard').style.display = 'block';
+            checkColumnReady();
+        } catch (e) { alert('预览出错: ' + e.message); }
+    }
+
+    function fillColumnSelect(id, columns) {
+        const sel = document.getElementById(id);
+        sel.innerHTML = '<option value="">-- 请选择 --</option>';
+        columns.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c; opt.textContent = c;
+            sel.appendChild(opt);
+        });
+    }
+
+    document.getElementById('colA').addEventListener('change', checkColumnReady);
+    document.getElementById('colB').addEventListener('change', checkColumnReady);
+
+    function checkColumnReady() {
+        const a = document.getElementById('colA').value;
+        const b = document.getElementById('colB').value;
+        document.getElementById('confirmColsBtn').disabled = !(a && b && a !== b);
+    }
+
+    window.confirmColumns = function() {
+        const a = document.getElementById('colA').value;
+        const b = document.getElementById('colB').value;
+        if (!a || !b || a === b) { alert('请选择两个不同的价格列'); return; }
+        document.getElementById('paramCard').style.display = 'block';
+        document.getElementById('paramCard').scrollIntoView({ behavior: 'smooth' });
+    };
+
+    // ========== 滚动回测开关 ==========
+    document.getElementById('enableRolling').addEventListener('change', e => {
+        document.getElementById('rollingOpts').style.display = e.target.checked ? 'block' : 'none';
+    });
+
+    // ========== 运行分析 ==========
+    window.runAnalysis = async function() {
+        const colA = document.getElementById('colA').value;
+        const colB = document.getElementById('colB').value;
+        const colDate = document.getElementById('colDate').value;
+        const entryZ = parseFloat(document.getElementById('entryZ').value);
+        const exitZ = parseFloat(document.getElementById('exitZ').value);
+        const zscoreWindow = parseInt(document.getElementById('zscoreWindow').value);
+        const maxHolding = parseInt(document.getElementById('maxHolding').value);
+        const enableDcc = document.getElementById('enableDccStoploss').checked;
+        const enableRolling = document.getElementById('enableRolling').checked;
+        const rollingPeriods = parseInt(document.getElementById('rollingPeriods').value);
+        const rollingWindow = parseInt(document.getElementById('rollingWindow').value);
+        const skipRows = parseInt(document.getElementById('skipRows').value);
+
+        if (!state.filepath || !state.sheet) { alert('请先上传文件并选择工作表'); return; }
+        if (!colA || !colB) { alert('请选择两个价格列'); return; }
+
+        // 进度条
+        const progressWrap = document.getElementById('progressWrap');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        progressWrap.style.display = 'block';
+        progressBar.style.width = '10%';
+        progressText.textContent = '正在分析...（可能需要30秒-2分钟）';
+        document.getElementById('runBtn').disabled = true;
+
+        try {
+            const payload = {
+                model_type: 'spread_arbitrage',
+                filepath: state.filepath,
+                sheet_name: state.sheet,
+                column_mapping: { col_a: colA, col_b: colB, date_col: colDate || null },
+                skip_rows: skipRows,
+                model_config: {
+                    entry_zscore: entryZ,
+                    exit_zscore: exitZ,
+                    zscore_window: zscoreWindow,
+                    max_holding_days: maxHolding,
+                    enable_dcc_stoploss: enableDcc,
+                    enable_rolling_backtest: enableRolling,
+                    rolling_periods: rollingPeriods,
+                    rolling_window_days: rollingWindow,
+                }
+            };
+
+            // 使用长轮询方式（分析可能耗时较长）
+            const res = await fetch('/api/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+
+            progressBar.style.width = '100%';
+            progressText.textContent = '完成!';
+
+            if (!data.success) {
+                alert('分析失败: ' + (data.error || '未知错误'));
+                document.getElementById('runBtn').disabled = false;
+                return;
+            }
+
+            // 显示结果
+            showResults(data);
+        } catch (e) {
+            alert('请求失败: ' + e.message);
+        } finally {
+            document.getElementById('runBtn').disabled = false;
+            setTimeout(() => { progressWrap.style.display = 'none'; }, 1500);
+        }
+    };
+
+    function showResults(data) {
+        const card = document.getElementById('resultsCard');
+        card.style.display = 'block';
+        const summary = data.summary || {};
+
+        // 综合判断
+        const verdict = document.getElementById('verdictBox');
+        if (summary.tradeable) {
+            verdict.className = 'verdict-box good';
+            verdict.innerHTML = '✅ 价差具备套利条件：平稳 + 协整 + 合理半衰期';
+        } else if (summary.is_mean_reverting && summary.is_cointegrated) {
+            verdict.className = 'verdict-box warn';
+            verdict.innerHTML = '⚠️ 价差均值回归但半衰期较长，需谨慎操作';
+        } else {
+            verdict.className = 'verdict-box bad';
+            verdict.innerHTML = '❌ 价差不具备套利条件';
+        }
+
+        // 检验指标
+        const tests = [
+            { label: 'ADF p值', value: summary.adf_pvalue ? summary.adf_pvalue.toFixed(4) : 'N/A' },
+            { label: '协整检验', value: summary.johansen_cointegrated ? '✅ 通过' : '❌ 未通过' },
+            { label: '半衰期', value: summary.half_life ? summary.half_life + '天' : 'N/A' },
+            { label: '全样本相关性', value: summary.full_correlation ? summary.full_correlation.toFixed(4) : 'N/A' },
+        ];
+
+        let testsHtml = '<h3>统计检验</h3><div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:10px 0;">';
+        tests.forEach(t => {
+            testsHtml += `<div class="metric-box"><div class="value">${t.value}</div><div class="label">${t.label}</div></div>`;
+        });
+        testsHtml += '</div>';
+
+        // 回测指标
+        const metrics = [
+            { label: '累计收益', value: summary.total_return || 'N/A', cls: summary.total_return && summary.total_return.includes('-') ? 'negative' : 'positive' },
+            { label: '夏普比率', value: summary.sharpe_ratio || 'N/A' },
+            { label: '最大回撤', value: summary.max_drawdown || 'N/A', cls: 'negative' },
+            { label: '胜率', value: summary.win_rate || 'N/A' },
+            { label: '盈亏比', value: summary.profit_loss_ratio || 'N/A' },
+            { label: '总交易次数', value: summary.total_trades || 'N/A' },
+        ];
+
+        let metricsHtml = '<h3>回测绩效</h3><div class="metric-grid">';
+        metrics.forEach(m => {
+            metricsHtml += `<div class="metric-box"><div class="value ${m.cls || ''}">${m.value}</div><div class="label">${m.label}</div></div>`;
+        });
+        metricsHtml += '</div>';
+
+        document.getElementById('summaryContent').innerHTML = testsHtml;
+        document.getElementById('metricsGrid').innerHTML = metricsHtml;
+
+        // 操作按钮
+        let btnsHtml = '';
+        if (data.download_url) btnsHtml += `<a href="${data.download_url}" class="btn btn-primary" style="margin-right:10px;">📥 下载报告</a>`;
+        if (data.view_url) btnsHtml += `<a href="${data.view_url}" target="_blank" class="btn btn-primary" style="margin-right:10px;">👁 查看完整报告</a>`;
+        if (data.config_download_url) btnsHtml += `<a href="${data.config_download_url}" class="btn btn-primary" style="background:#e67e22;margin-right:10px;">📋 下载配置文件</a><a href="/quick-signal" class="btn btn-primary" style="background:#8e44ad;">⚡ 快速信号</a>`;
+        document.getElementById('actionButtons').innerHTML = btnsHtml;
+
+        card.scrollIntoView({ behavior: 'smooth' });
+    }
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,497 @@
+{% extends "base.html" %}
+
+{% block title %}快速信号{% endblock %}
+
+{% block content %}
+<style>
+.qs-container { max-width: 960px; margin: 0 auto; padding: 20px; }
+.qs-card {
+    background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    padding: 25px; margin-bottom: 25px;
+}
+.qs-card h2 {
+    color: #2c3e50; margin-bottom: 18px; padding-bottom: 10px;
+    border-bottom: 2px solid #3498db; font-size: 18px;
+}
+.back-link {
+    display: inline-block; margin-bottom: 20px; color: #3498db;
+    text-decoration: none; font-size: 14px;
+}
+.back-link:hover { text-decoration: underline; }
+
+/* 上传区 */
+.upload-area {
+    border: 2px dashed #bdc3c7; border-radius: 8px; padding: 40px;
+    text-align: center; cursor: pointer; transition: all 0.3s;
+}
+.upload-area:hover, .upload-area.drag-over {
+    border-color: #3498db; background: #ebf5fb;
+}
+
+/* 进度 */
+.progress-wrap { margin-top: 15px; }
+.progress {
+    width: 100%; height: 24px; background: #ecf0f1; border-radius: 4px; overflow: hidden;
+}
+.progress-bar {
+    height: 100%; background: linear-gradient(90deg, #3498db, #2ecc71);
+    transition: width 0.4s; display: flex; align-items: center;
+    justify-content: center; color: white; font-size: 12px; font-weight: 600;
+}
+.step-text { color: #7f8c8d; font-size: 13px; margin-top: 8px; }
+
+/* 当前信号 */
+.signal-card {
+    background: white; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+    padding: 30px; margin-bottom: 25px; text-align: center;
+}
+.signal-badge {
+    display: inline-block; padding: 14px 40px; border-radius: 8px;
+    font-size: 24px; font-weight: 700; margin-bottom: 15px;
+}
+.signal-badge.long { background: #e8f8f5; color: #1e8449; border: 2px solid #27ae60; }
+.signal-badge.short { background: #fdedec; color: #c0392b; border: 2px solid #e74c3c; }
+.signal-badge.hold { background: #fef9e7; color: #7d6608; border: 2px solid #f1c40f; }
+.signal-badge.close { background: #f4f6f7; color: #5d6d7e; border: 2px solid #aab7b8; }
+.signal-badge.dcc_warning { background: #fdebd0; color: #a04000; border: 2px solid #e67e22; }
+.signal-badge.none { background: #f4f6f7; color: #95a5a6; border: 2px solid #d5d8dc; }
+
+.signal-detail { display: flex; justify-content: center; gap: 40px; margin-top: 15px; }
+.signal-item { text-align: center; }
+.signal-item .val { font-size: 20px; font-weight: 600; color: #2c3e50; }
+.signal-item .lbl { font-size: 12px; color: #7f8c8d; margin-top: 2px; }
+
+/* 参数/摘要条 */
+.info-bar {
+    display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0;
+}
+.info-tag {
+    display: inline-block; padding: 4px 12px; border-radius: 12px;
+    font-size: 12px; background: #ecf0f1; color: #2c3e50;
+}
+
+/* 数据表格 */
+.data-table {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+}
+.data-table th {
+    background: #2c3e50; color: white; padding: 10px 12px; text-align: center;
+    font-weight: 600; position: sticky; top: 0;
+}
+.data-table td {
+    border: 1px solid #e5e7eb; padding: 8px 12px; text-align: center;
+}
+.data-table tbody tr:nth-child(even) { background: #f9fafb; }
+.data-table tbody tr:hover { background: #ebf5fb; }
+.data-table tr.row-long { background: #e8f8f5 !important; }
+.data-table tr.row-short { background: #fdedec !important; }
+.data-table tr.row-dcc_warning { background: #fdebd0 !important; }
+.data-table .signal-cell { font-weight: 600; }
+
+.table-wrap { max-height: 600px; overflow-y: auto; border-radius: 6px; border: 1px solid #e5e7eb; }
+
+.btn {
+    padding: 10px 24px; border: none; border-radius: 4px; cursor: pointer;
+    font-size: 14px; font-weight: 500; transition: all 0.2s;
+}
+.btn-primary { background: #3498db; color: white; }
+.btn-primary:hover { background: #2980b9; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.hidden { display: none !important; }
+</style>
+
+<div class="qs-container">
+    <a href="/" class="back-link">← 返回套保分析平台</a>
+
+    <!-- 上传配置文件 -->
+    <div class="qs-card" id="uploadCard">
+        <h2>快速信号</h2>
+        <p style="color:#7f8c8d; margin-bottom:15px;">
+            上传上次分析时导出的配置文件（analysis_config.json，包含在下载的 ZIP 包中）。
+            <br>更新 Excel 数据后，上传配置文件即可快速获取最近 30 天的信号/套保比例。
+            <br>支持模型：价差套利、Basic GARCH、DCC-GARCH、ECM-GARCH。
+        </p>
+        <div class="upload-area" id="uploadArea">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#bdc3c7" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="12" y1="18" x2="12" y2="12"></line>
+                <line x1="9" y1="15" x2="12" y2="12"></line>
+                <line x1="15" y1="15" x2="12" y2="12"></line>
+            </svg>
+            <p style="color:#7f8c8d;">拖拽配置文件到此处，或点击选择</p>
+            <p style="color:#bdc3c7; font-size:12px;">支持 .json 格式的 analysis_config.json</p>
+            <input type="file" id="fileInput" accept=".json" style="display:none;">
+            <button class="btn btn-primary" onclick="event.stopPropagation(); document.getElementById('fileInput').click();" style="margin-top:10px;">选择配置文件</button>
+        </div>
+
+        <!-- 进度 -->
+        <div class="progress-wrap hidden" id="progressWrap">
+            <div class="progress"><div class="progress-bar" id="progressBar" style="width:0%"></div></div>
+            <div class="step-text" id="stepText">准备中...</div>
+        </div>
+    </div>
+
+    <!-- 结果区域 -->
+    <div id="resultArea" class="hidden">
+        <!-- 当前信号 -->
+        <div class="signal-card" id="signalCard"></div>
+
+        <!-- 参数信息 + 上次分析摘要 -->
+        <div class="qs-card">
+            <h2>分析参数</h2>
+            <div class="info-bar" id="paramBar"></div>
+        </div>
+
+        <div class="qs-card" id="lastAnalysisCard">
+            <h2>上次分析摘要</h2>
+            <div id="lastAnalysisContent"></div>
+        </div>
+
+        <!-- 30天数据表格 -->
+        <div class="qs-card">
+            <h2>最近 30 天信号数据</h2>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>日期</th>
+                            <th>价格 A</th>
+                            <th>价格 B</th>
+                            <th>价差</th>
+                            <th>Z-Score</th>
+                            <th>信号方向</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dataBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+    const progressWrap = document.getElementById('progressWrap');
+    const progressBar = document.getElementById('progressBar');
+    const stepText = document.getElementById('stepText');
+    const resultArea = document.getElementById('resultArea');
+
+    // 拖拽
+    uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('drag-over'); });
+    uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('drag-over'));
+    uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove('drag-over');
+        const file = e.dataTransfer.files[0];
+        if (file) handleFile(file);
+    });
+
+    // 点击上传
+    uploadArea.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files[0]) handleFile(e.target.files[0]);
+    });
+
+    function handleFile(file) {
+        if (!file.name.endsWith('.json')) {
+            alert('请上传 .json 格式的配置文件');
+            return;
+        }
+
+        // 先读取配置，校验
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const config = JSON.parse(e.target.result);
+                if (!config.data || !config.data.filepath) {
+                    alert('配置文件格式不正确，请确认是 analysis_config.json');
+                    return;
+                }
+                submitConfig(config);
+            } catch (err) {
+                alert('JSON 解析失败: ' + err.message);
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    function setProgress(pct, text) {
+        progressBar.style.width = pct + '%';
+        stepText.textContent = text;
+    }
+
+    function submitConfig(config) {
+        progressWrap.classList.remove('hidden');
+        resultArea.classList.add('hidden');
+        setProgress(10, '提交配置...');
+
+        const formData = new FormData();
+        // 重新创建文件 blob 用于上传
+        const blob = new Blob([JSON.stringify(config)], { type: 'application/json' });
+        formData.append('file', blob, 'analysis_config.json');
+
+        setProgress(20, '加载数据...');
+
+        // 模拟进度（后端是同步的，无法真实推送进度）
+        let progressTimer = setInterval(() => {
+            const current = parseFloat(progressBar.style.width);
+            if (current < 85) {
+                setProgress(current + 5, getStepText(current));
+            }
+        }, 3000);
+
+        fetch('/api/quick-signal', {
+            method: 'POST',
+            body: formData,
+        })
+        .then(res => res.json())
+        .then(data => {
+            clearInterval(progressTimer);
+            setProgress(100, '完成!');
+
+            if (data.success) {
+                setTimeout(() => {
+                    progressWrap.classList.add('hidden');
+                    showResult(data);
+                }, 500);
+            } else {
+                alert('计算失败: ' + (data.error || '未知错误'));
+                progressWrap.classList.add('hidden');
+            }
+        })
+        .catch(err => {
+            clearInterval(progressTimer);
+            alert('请求失败: ' + err.message);
+            progressWrap.classList.add('hidden');
+        });
+    }
+
+    function getStepText(pct) {
+        if (pct < 30) return '加载数据...';
+        if (pct < 50) return '模型拟合中...';
+        if (pct < 85) return '计算信号...';
+        return '生成结果...';
+    }
+
+    function showResult(data) {
+        const modelType = data.model_type || 'spread_arbitrage';
+        const ci = data.config_info || {};
+        const cur = data.current || {};
+
+        // 标题动态更新
+        document.querySelector('#uploadCard h2').textContent = '快速信号 — ' + (ci.model_name || '价差套利');
+
+        if (modelType === 'spread_arbitrage') {
+            showSpreadResult(data);
+        } else {
+            showGarchResult(data, modelType);
+        }
+
+        // 参数信息（通用）
+        renderParamBar(ci);
+
+        // 上次分析摘要（通用）
+        renderLastAnalysis(data.last_analysis, modelType);
+
+        // 30天数据表格
+        renderDataTable(data.last_30_days || [], modelType);
+
+        resultArea.classList.remove('hidden');
+    }
+
+    // ========================
+    // 价差套利结果展示
+    // ========================
+    function showSpreadResult(data) {
+        const cur = data.current;
+        const signalText = cur.signal || '未知';
+        const signalType = cur.signal_type || 'none';
+
+        document.getElementById('signalCard').innerHTML = `
+            <div class="signal-badge ${signalType}">${signalText}</div>
+            <div class="signal-detail">
+                <div class="signal-item">
+                    <div class="val">${cur.zscore !== null ? cur.zscore.toFixed(4) : 'N/A'}</div>
+                    <div class="lbl">Z-Score</div>
+                </div>
+                <div class="signal-item">
+                    <div class="val">${cur.spread.toFixed(2)}</div>
+                    <div class="lbl">最新价差</div>
+                </div>
+                <div class="signal-item">
+                    <div class="val">${cur.price_a.toFixed(1)}</div>
+                    <div class="lbl">价格 A</div>
+                </div>
+                <div class="signal-item">
+                    <div class="val">${cur.price_b.toFixed(1)}</div>
+                    <div class="lbl">价格 B</div>
+                </div>
+                <div class="signal-item">
+                    <div class="val">${cur.date}</div>
+                    <div class="lbl">数据日期</div>
+                </div>
+            </div>
+        `;
+    }
+
+    // ========================
+    // GARCH 套保比例结果展示
+    // ========================
+    function showGarchResult(data, modelType) {
+        const cur = data.current;
+        const ci = data.config_info;
+
+        // 构建指标项
+        let metrics = [
+            { val: cur.hedge_ratio ? cur.hedge_ratio.toFixed(4) : 'N/A', lbl: '套保比例' },
+            { val: cur.spot ? cur.spot.toFixed(1) : 'N/A', lbl: '现货价格' },
+            { val: cur.futures ? cur.futures.toFixed(1) : 'N/A', lbl: '期货价格' },
+            { val: cur.spread ? cur.spread.toFixed(2) : 'N/A', lbl: '价差' },
+            { val: cur.sigma_s ? (cur.sigma_s * 100).toFixed(2) + '%' : 'N/A', lbl: '现货波动率' },
+            { val: cur.sigma_f ? (cur.sigma_f * 100).toFixed(2) + '%' : 'N/A', lbl: '期货波动率' },
+        ];
+
+        // 模型特有指标
+        if (modelType === 'basic_garch' && cur.rolling_corr != null) {
+            metrics.push({ val: cur.rolling_corr.toFixed(4), lbl: '滚动相关系数' });
+        } else if (modelType === 'dcc_garch' && cur.rho != null) {
+            metrics.push({ val: cur.rho.toFixed(4), lbl: '动态相关系数' });
+        } else if (modelType === 'ecm_garch' && cur.ect != null) {
+            metrics.push({ val: cur.ect.toFixed(6), lbl: '误差修正项' });
+        }
+        metrics.push({ val: cur.date || 'N/A', lbl: '数据日期' });
+
+        document.getElementById('signalCard').innerHTML = `
+            <div style="font-size:16px; color:#7f8c8d; margin-bottom:12px;">当前最优套保比例</div>
+            <div class="signal-badge hold" style="font-size:32px;">${cur.hedge_ratio ? cur.hedge_ratio.toFixed(4) : 'N/A'}</div>
+            <div class="signal-detail">
+                ${metrics.map(m => `<div class="signal-item"><div class="val">${m.val}</div><div class="lbl">${m.lbl}</div></div>`).join('')}
+            </div>
+        `;
+    }
+
+    // ========================
+    // 参数信息栏（通用）
+    // ========================
+    function renderParamBar(ci) {
+        const tags = [];
+        if (ci.model_type === 'spread_arbitrage') {
+            tags.push(`入场阈值: ${ci.entry_zscore}`);
+            tags.push(`出场阈值: ${ci.exit_zscore}`);
+            tags.push(`Z-Score窗口: ${ci.zscore_window}天`);
+            tags.push(`最大持仓: ${ci.max_holding_days}天`);
+            tags.push(`GARCH动态阈值: ${ci.use_garch_threshold ? '启用' : '关闭'}`);
+            tags.push(`DCC预警止损: ${ci.use_dcc_stoploss ? '启用' : '关闭'}`);
+        } else if (ci.model_type === 'basic_garch') {
+            tags.push(`GARCH(${ci.p || 1},${ci.q || 1})`);
+            tags.push(`相关系数窗口: ${ci.corr_window || 120}天`);
+            tags.push(`税率: ${((ci.tax_rate || 0.13) * 100).toFixed(0)}%`);
+        } else if (ci.model_type === 'dcc_garch') {
+            tags.push(`DCC-GARCH(${ci.p || 1},${ci.q || 1})`);
+            tags.push(`分布: ${ci.dist || 'norm'}`);
+            tags.push(`税率: ${((ci.tax_rate || 0.13) * 100).toFixed(0)}%`);
+        } else if (ci.model_type === 'ecm_garch') {
+            tags.push(`ECM-GARCH(${ci.p || 1},${ci.q || 1})`);
+            tags.push(`协整窗口: ${ci.coint_window || 120}天`);
+            tags.push(`耦合方式: ${ci.coupling_method || 'ect-garch'}`);
+            tags.push(`税率: ${((ci.tax_rate || 0.13) * 100).toFixed(0)}%`);
+        }
+        tags.push(`数据范围: ${ci.data_date_range || 'N/A'}`);
+        tags.push(`总数据量: ${ci.total_rows || 0}行`);
+
+        document.getElementById('paramBar').innerHTML =
+            tags.map(t => `<span class="info-tag">${t}</span>`).join('');
+    }
+
+    // ========================
+    // 上次分析摘要（通用）
+    // ========================
+    function renderLastAnalysis(la, modelType) {
+        const card = document.getElementById('lastAnalysisCard');
+        const content = document.getElementById('lastAnalysisContent');
+
+        if (!la || !la.created_at) {
+            card.style.display = 'none';
+            return;
+        }
+
+        card.style.display = '';
+
+        let items = `<div><strong>分析时间:</strong> ${la.created_at}</div>`;
+
+        if (modelType === 'spread_arbitrage') {
+            const tradeableHtml = la.tradeable
+                ? '<span style="color:#27ae60;font-weight:600;">可交易</span>'
+                : '<span style="color:#e74c3c;font-weight:600;">不建议交易</span>';
+            const cointHtml = la.is_cointegrated
+                ? '<span style="color:#27ae60;">协整</span>'
+                : '<span style="color:#e74c3c;">非协整</span>';
+            items += `<div><strong>交易状态:</strong> ${tradeableHtml}</div>`;
+            items += `<div><strong>协整检验:</strong> ${cointHtml}</div>`;
+            if (la.half_life) items += `<div><strong>半衰期:</strong> ${la.half_life}天</div>`;
+            if (la.full_correlation) items += `<div><strong>全样本相关性:</strong> ${la.full_correlation}</div>`;
+        } else {
+            // GARCH 模型摘要
+            if (la.hedge_ratio_mean) items += `<div><strong>套保比例均值:</strong> ${la.hedge_ratio_mean}</div>`;
+            if (la.variance_reduction) items += `<div><strong>方差降低:</strong> ${la.variance_reduction}</div>`;
+            if (la.rating) items += `<div><strong>评级:</strong> ${la.rating}</div>`;
+            if (la.model_name) items += `<div><strong>模型:</strong> ${la.model_name}</div>`;
+        }
+
+        content.innerHTML = `<div style="display:flex; flex-wrap:wrap; gap:20px; font-size:14px;">${items}</div>`;
+    }
+
+    // ========================
+    // 数据表格（按模型类型切换列）
+    // ========================
+    function renderDataTable(rows, modelType) {
+        const thead = document.querySelector('.data-table thead tr');
+        const tbody = document.getElementById('dataBody');
+
+        if (modelType === 'spread_arbitrage') {
+            thead.innerHTML = '<th>日期</th><th>价格 A</th><th>价格 B</th><th>价差</th><th>Z-Score</th><th>信号方向</th>';
+            tbody.innerHTML = rows.map(r => {
+                const cls = r.signal_type === 'long' ? 'row-long'
+                          : r.signal_type === 'short' ? 'row-short'
+                          : r.signal_type === 'dcc_warning' ? 'row-dcc_warning' : '';
+                const z = r.zscore !== null ? r.zscore.toFixed(4) : '-';
+                return `<tr class="${cls}">
+                    <td>${r.date}</td><td>${r.price_a.toFixed(1)}</td><td>${r.price_b.toFixed(1)}</td>
+                    <td>${r.spread.toFixed(2)}</td><td>${z}</td><td class="signal-cell">${r.signal}</td>
+                </tr>`;
+            }).join('');
+        } else {
+            // GARCH 模型表格
+            let extraCol = '';
+            let extraCell = '';
+            if (modelType === 'basic_garch') {
+                extraCol = '<th>滚动相关系数</th>';
+                extraCell = r => `<td>${r.rolling_corr != null ? r.rolling_corr.toFixed(4) : '-'}</td>`;
+            } else if (modelType === 'dcc_garch') {
+                extraCol = '<th>动态相关系数</th>';
+                extraCell = r => `<td>${r.rho != null ? r.rho.toFixed(4) : '-'}</td>`;
+            } else if (modelType === 'ecm_garch') {
+                extraCol = '<th>误差修正项</th>';
+                extraCell = r => `<td>${r.ect != null ? r.ect.toFixed(6) : '-'}</td>`;
+            }
+
+            thead.innerHTML = '<th>日期</th><th>现货</th><th>期货</th><th>价差</th><th>套保比例</th><th>现货波动率</th><th>期货波动率</th>' + extraCol;
+            tbody.innerHTML = rows.map(r => {
+                return `<tr>
+                    <td>${r.date}</td>
+                    <td>${r.spot.toFixed(1)}</td><td>${r.futures.toFixed(1)}</td><td>${r.spread.toFixed(2)}</td>
+                    <td style="font-weight:600;">${r.hedge_ratio != null ? r.hedge_ratio.toFixed(4) : '-'}</td>
+                    <td>${r.sigma_s != null ? (r.sigma_s * 100).toFixed(2) + '%' : '-'}</td>
+                    <td>${r.sigma_f != null ? (r.sigma_f * 100).toFixed(2) + '%' : '-'}</td>
+                    ${extraCell(r)}
+                </tr>`;
+            }).join('');
+        }
+    }
+})();
+</script>
+{% endblock %}
