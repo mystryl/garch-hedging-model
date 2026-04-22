@@ -683,6 +683,8 @@ def generate_report():
             'summary': result.get('summary', {}),
             'message': f'{MODEL_CONFIG[model_type]["name"]}模型分析完成'
         }
+        if result.get('spread_range'):
+            response_data['spread_range'] = result['spread_range']
         if config_download_url:
             response_data['config_download_url'] = config_download_url
         return jsonify(response_data)

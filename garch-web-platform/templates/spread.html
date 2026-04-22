@@ -82,6 +82,56 @@ select.form-control { cursor: pointer; }
 .note {
     font-size: 12px; color: #95a5a6; margin-top: 5px;
 }
+
+/* 价差区间卡片 */
+.sr-card {
+    background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    padding: 25px; margin: 20px 0; display: none;
+}
+.sr-card h3 { color: #34495e; margin: 0 0 15px; font-size: 16px; }
+.sr-values {
+    display: flex; justify-content: space-around; margin-bottom: 16px; gap: 8px;
+}
+.sr-value-item {
+    text-align: center; padding: 10px 12px; border-radius: 8px; flex: 1;
+}
+.sr-value-item .sr-val { font-size: 18px; font-weight: 700; margin-bottom: 3px; }
+.sr-value-item .sr-label { font-size: 11px; color: #7f8c8d; }
+.sr-value-item.sr-long { background: #e8f8f5; }
+.sr-value-item.sr-long .sr-val { color: #1e8449; }
+.sr-value-item.sr-close { background: #fef9e7; }
+.sr-value-item.sr-close .sr-val { color: #7d6608; }
+.sr-value-item.sr-short { background: #fdedec; }
+.sr-value-item.sr-short .sr-val { color: #c0392b; }
+.sr-bar-wrap { margin: 14px 0; padding: 0 5px; }
+.sr-bar-container {
+    position: relative; height: 22px; border-radius: 11px; overflow: visible;
+}
+.sr-bar {
+    height: 100%; border-radius: 11px;
+    background: linear-gradient(to right, #27ae60, #f39c12, #e74c3c);
+}
+.sr-bar-marker {
+    position: absolute; top: -6px; width: 3px; height: 34px;
+    background: #2c3e50; border-radius: 2px; transform: translateX(-50%);
+}
+.sr-bar-marker::after {
+    content: attr(data-label); position: absolute; top: -20px; left: 50%;
+    transform: translateX(-50%); font-size: 10px; color: #2c3e50;
+    font-weight: 700; white-space: nowrap;
+    background: white; padding: 1px 5px; border-radius: 3px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+}
+.sr-bar-ticks {
+    display: flex; justify-content: space-between; font-size: 10px;
+    color: #7f8c8d; margin-top: 10px;
+}
+.sr-meta {
+    display: flex; flex-wrap: wrap; gap: 12px; font-size: 11px; color: #7f8c8d;
+    margin-top: 12px; padding-top: 10px; border-top: 1px solid #ecf0f1;
+}
+.sr-meta .sr-note { color: #bdc3c7; font-style: italic; }
+
 .back-link {
     display: inline-block; margin-bottom: 20px; color: #3498db;
     text-decoration: none; font-size: 14px;
@@ -242,6 +292,18 @@ select.form-control { cursor: pointer; }
         <div id="verdictBox"></div>
         <div id="summaryContent"></div>
         <div id="metricsGrid"></div>
+        <div class="sr-card" id="spreadRangeCard">
+            <h3>价差区间参考</h3>
+            <div class="sr-values" id="srValues"></div>
+            <div class="sr-bar-wrap">
+                <div class="sr-bar-container">
+                    <div class="sr-bar" id="srBar"></div>
+                    <div class="sr-bar-marker" id="srBarMarker"></div>
+                </div>
+                <div class="sr-bar-ticks" id="srBarTicks"></div>
+            </div>
+            <div class="sr-meta" id="srMeta"></div>
+        </div>
         <div id="actionButtons" style="margin-top:20px;text-align:center;"></div>
     </div>
 </div>
@@ -521,14 +583,72 @@ select.form-control { cursor: pointer; }
         document.getElementById('summaryContent').innerHTML = testsHtml;
         document.getElementById('metricsGrid').innerHTML = metricsHtml;
 
+        // 价差区间卡片
+        renderSpreadRange(data.spread_range);
+
         // 操作按钮
         let btnsHtml = '';
         if (data.download_url) btnsHtml += `<a href="${data.download_url}" class="btn btn-primary" style="margin-right:10px;">📥 下载报告</a>`;
         if (data.view_url) btnsHtml += `<a href="${data.view_url}" target="_blank" class="btn btn-primary" style="margin-right:10px;">👁 查看完整报告</a>`;
-        if (data.config_download_url) btnsHtml += `<a href="${data.config_download_url}" class="btn btn-primary" style="background:#e67e22;margin-right:10px;">📋 下载配置文件</a><a href="/quick-signal" class="btn btn-primary" style="background:#8e44ad;">⚡ 快速信号</a>`;
+        if (data.config_download_url) btnsHtml += `<a href="${data.config_download_url}" class="btn btn-primary" style="background:#e67e22;margin-right:10px;">📋 下载配置文件</a><a href="/quick-signal" target="_blank" class="btn btn-primary" style="background:#8e44ad;">⚡ 快速信号</a>`;
         document.getElementById('actionButtons').innerHTML = btnsHtml;
 
         card.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // 价差区间展示
+    function renderSpreadRange(sr) {
+        if (!sr || !sr.current_spread) return;
+
+        const card = document.getElementById('spreadRangeCard');
+        card.style.display = 'block';
+
+        document.getElementById('srValues').innerHTML = `
+            <div class="sr-value-item sr-long">
+                <div class="sr-val">${sr.long_entry_spread.toFixed(2)}</div>
+                <div class="sr-label">\u2193 做多入场</div>
+            </div>
+            <div class="sr-value-item sr-close">
+                <div class="sr-val">${sr.close_lower_spread.toFixed(2)}</div>
+                <div class="sr-label">平仓下限</div>
+            </div>
+            <div class="sr-value-item sr-close">
+                <div class="sr-val">${sr.close_upper_spread.toFixed(2)}</div>
+                <div class="sr-label">平仓上限</div>
+            </div>
+            <div class="sr-value-item sr-short">
+                <div class="sr-val">${sr.short_entry_spread.toFixed(2)}</div>
+                <div class="sr-label">\u2191 做空入场</div>
+            </div>
+        `;
+
+        const range = sr.short_entry_spread - sr.long_entry_spread;
+        if (range > 0) {
+            const clPct = ((sr.close_lower_spread - sr.long_entry_spread) / range * 100).toFixed(1);
+            const cuPct = ((sr.close_upper_spread - sr.long_entry_spread) / range * 100).toFixed(1);
+            document.getElementById('srBar').style.background =
+                'linear-gradient(to right, #27ae60 0%, #27ae60 ' + clPct + '%, #f39c12 ' + clPct + '%, #f39c12 ' + cuPct + '%, #e74c3c ' + cuPct + '%, #e74c3c 100%)';
+
+            const curPct = Math.max(0, Math.min(100, (sr.current_spread - sr.long_entry_spread) / range * 100));
+            const marker = document.getElementById('srBarMarker');
+            marker.style.left = curPct + '%';
+            marker.setAttribute('data-label', '\u5F53\u524D ' + sr.current_spread.toFixed(2));
+        }
+
+        document.getElementById('srBarTicks').innerHTML = `
+            <span>${sr.long_entry_spread.toFixed(1)}</span>
+            <span>${sr.close_lower_spread.toFixed(1)}</span>
+            <span>${sr.close_upper_spread.toFixed(1)}</span>
+            <span>${sr.short_entry_spread.toFixed(1)}</span>
+        `;
+
+        let metaHtml = '<span>\u6EDA\u52A8\u5747\u503C: ' + sr.rolling_mean.toFixed(2) + '</span>';
+        metaHtml += '<span>\u6EDA\u52A8\u6807\u51C6\u5DEE: ' + sr.rolling_std.toFixed(2) + '</span>';
+        if (sr.is_dynamic) {
+            metaHtml += '<span>GARCH\u52A8\u6001\u56E0\u5B50: ' + sr.dynamic_factor.toFixed(4) + '</span>';
+        }
+        metaHtml += '<span class="sr-note">\u57FA\u4E8E\u6700\u8FD160\u4E2A\u4EA4\u6613\u65E5\u6EDA\u52A8\u7EDF\u8BA1\uFF0C\u6BCF\u65E5\u66F4\u65B0</span>';
+        document.getElementById('srMeta').innerHTML = metaHtml;
     }
 })();
 </script>

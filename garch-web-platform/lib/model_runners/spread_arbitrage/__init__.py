@@ -50,6 +50,7 @@ def run_spread_arbitrage(
 
         from lib.spread_arbitrage_analyzer.config import SpreadConfig
         from lib.spread_arbitrage_analyzer.data_loader import SpreadDataLoader
+        from lib.spread_arbitrage_analyzer.spread_utils import calculate_spread_range
         from lib.spread_arbitrage_analyzer.spread_analyzer import SpreadAnalyzer
         from lib.spread_arbitrage_analyzer.backtest_engine import SpreadBacktestEngine
         from lib.spread_arbitrage_analyzer.report_generator import SpreadReportGenerator
@@ -148,12 +149,23 @@ def run_spread_arbitrage(
             'win_rate': f"{backtest.metrics.win_rate:.2%}",
             'profit_loss_ratio': f"{backtest.metrics.profit_loss_ratio:.2f}",
         }
+        # 计算价差区间（Z-Score → 实际价差值）
+        spread_range = None
+        try:
+            garch_res = {
+                'volatility': None,
+                'upper': analysis.dynamic_threshold_upper,
+            } if analysis.dynamic_threshold_upper is not None else None
+            spread_range = calculate_spread_range(df['spread'], config, garch_res) or None
+        except Exception as e:
+            print(f"价差区间计算失败: {e}")
 
         return {
             'success': True,
             'report_path': report_files['report_path'],
             'excel_path': report_files.get('excel_path'),
             'summary': summary,
+            'spread_range': spread_range,
         }
 
     except Exception as e:

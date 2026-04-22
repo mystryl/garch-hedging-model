@@ -150,6 +150,7 @@ class QuickSignalCalculator:
                 'last_30_days': last_30,
                 'config_info': config_info,
                 'last_analysis': last_analysis,
+                'spread_range': calculate_spread_range(df['spread'], spread_config, getattr(self, '_last_garch_result', None)),
             }
 
         except Exception as e:
@@ -160,7 +161,6 @@ class QuickSignalCalculator:
 
     def _compute_spread_signals(self, df, config) -> tuple:
         """计算价差套利信号指标"""
-        from .spread_analyzer import SpreadAnalyzer
 
         analyzer = SpreadAnalyzer(config)
         spread = df['spread']
@@ -173,6 +173,7 @@ class QuickSignalCalculator:
         if config.enable_dynamic_threshold:
             print("  GARCH(1,1) 拟合中...")
             garch_result = analyzer._garch_dynamic_threshold(spread)
+            self._last_garch_result = garch_result
             if garch_result.get('volatility') is not None:
                 garch_upper = garch_result['upper']
                 garch_lower = garch_result['lower']

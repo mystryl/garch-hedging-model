@@ -1033,7 +1033,7 @@ function displayResult(result) {
             ${result.config_download_url ? `<a href="${result.config_download_url}" class="btn" style="background-color: #e67e22; color: white; text-decoration: none; padding: 12px 24px; border-radius: 4px; display: inline-block;">
                 📋 下载配置文件
             </a>
-            <a href="/quick-signal" class="btn" style="background-color: #8e44ad; color: white; text-decoration: none; padding: 12px 24px; border-radius: 4px; display: inline-block;">
+            <a href="/quick-signal" target="_blank" class="btn" style="background-color: #8e44ad; color: white; text-decoration: none; padding: 12px 24px; border-radius: 4px; display: inline-block;">
                 ⚡ 快速信号
             </a>` : ''}
             <button onclick="resetAnalysis()" class="btn" style="background-color: #e74c3c; color: white; padding: 12px 24px; border-radius: 4px; border: none; cursor: pointer;">
